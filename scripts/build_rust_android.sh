@@ -46,7 +46,7 @@ build_one() {
     linker="$clang_root/${target}${api_level}-clang"
     CARGO_TARGET_DIR="$rust_root/target" \
     CARGO_TARGET_$(echo "$target" | tr '[:lower:]-' '[:upper:]_')_LINKER="$linker" \
-        cargo build --manifest-path "$rust_root/Cargo.toml" --target "$target" --release
+        cargo build --manifest-path "$rust_root/Cargo.toml" --target "$target" --release --features android-backends
     cp "$rust_root/target/$target/release/libcubacadabra_engine.so" \
         "$output_root/$abi/libcubacadabra_engine.so"
 }
