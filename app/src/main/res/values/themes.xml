@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Cubacadabra" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#9AB9BE</item>
+        <item name="android:navigationBarColor">#102326</item>
+        <item name="android:statusBarColor">#102326</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
