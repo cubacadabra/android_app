@@ -19,13 +19,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +103,99 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
             }
             Spacer(Modifier.weight(1f))
             GameControls(model, state.sprinting)
+        }
+        if (state.settingsRoomOpen) {
+            SettingsRoomPanel(state, model)
+        } else if (state.settingsRoomState == 1) {
+            SettingsRoomHint()
+        }
+    }
+}
+
+@Composable
+private fun SettingsRoomHint() {
+    Box(Modifier.fillMaxSize().padding(top = 128.dp), contentAlignment = Alignment.TopCenter) {
+        Surface(
+            color = Color(0xCC17383A),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Row(Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("⚙", color = Color(0xFFED725B), fontSize = 18.sp)
+                Column(Modifier.padding(start = 9.dp)) {
+                    Text("SETTINGS ROOM", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Walk through the gear door", color = Color.White.copy(.72f), fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsRoomPanel(state: GameUiState, model: GameViewModel) {
+    var selected by remember { mutableStateOf(false) }
+    var draft by remember(state.username) { mutableStateOf(state.username) }
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).padding(18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            Modifier.fillMaxWidth().widthIn(max = 620.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = .97f),
+            tonalElevation = 8.dp,
+        ) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(Modifier.size(46.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                            Box(contentAlignment = Alignment.Center) { Text("⚙", color = MaterialTheme.colorScheme.onPrimary, fontSize = 22.sp) }
+                        }
+                        Column(Modifier.padding(start = 13.dp)) {
+                            Text("LOBBY SETTINGS", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            Text("Settings room", color = MaterialTheme.colorScheme.onSurface, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Button(onClick = model::leaveSettingsRoom, colors = ButtonDefaults.textButtonColors()) { Text("LEAVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+                }
+                Text("A quiet place for the details that make this world yours.", color = MaterialTheme.colorScheme.onSurface.copy(.72f), fontSize = 14.sp)
+                Surface(
+                    Modifier.fillMaxWidth(),
+                    onClick = { selected = true },
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) .7f else .22f)),
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("USERNAME", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
+                            Text("How other players see you", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 11.sp)
+                        }
+                        Text(state.username, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("›", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 22.sp, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+                if (selected) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { draft = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Your player name") },
+                            singleLine = true,
+                        )
+                        Button(onClick = { model.saveUsername(draft) }, modifier = Modifier.fillMaxWidth()) { Text("SAVE NAME") }
+                        Text(state.usernameStatus, color = MaterialTheme.colorScheme.onSurface.copy(.65f), fontSize = 11.sp)
+                    }
+                }
+                Row(verticalAlignment = Alignment.Top) {
+                    Text("＋", color = MaterialTheme.colorScheme.primary, fontSize = 19.sp)
+                    Column(Modifier.padding(start = 9.dp)) {
+                        Text("MORE ROOMS TO COME", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
+                        Text("Display, controls, and accessibility options are being furnished.", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 11.sp)
+                    }
+                }
+                Text("Walk back through the door when you’re ready to return to the lobby.", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 11.sp)
+            }
         }
     }
 }

@@ -29,6 +29,7 @@ extern uintptr_t engine_launch_pad_occupants(const CubacadabraEngine *engine, ui
 extern float engine_launch_pad_seconds(const CubacadabraEngine *engine, uintptr_t);
 extern uint8_t engine_launch_pad_phase(const CubacadabraEngine *engine, uintptr_t);
 extern uintptr_t engine_active_world(const CubacadabraEngine *engine);
+extern uint8_t engine_settings_room_state(const CubacadabraEngine *engine);
 extern float engine_camera_yaw(const CubacadabraEngine *engine);
 extern float engine_camera_pitch(const CubacadabraEngine *engine);
 extern float engine_camera_distance(const CubacadabraEngine *engine);
@@ -173,6 +174,11 @@ static jint JNICALL nativeSnapshotLength(JNIEnv *env, jclass klass) {
     return (jint)engine_snapshot_len();
 }
 
+static jint JNICALL nativeSettingsRoomState(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    return (jint)engine_settings_room_state(engine(value));
+}
+
 static JNINativeMethod methods[] = {
     {"nativeCreate", "()J", (void *)nativeCreate},
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
@@ -186,6 +192,7 @@ static JNINativeMethod methods[] = {
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},
+    {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

@@ -29,4 +29,5 @@ internal object NativeEngine {
     external fun nativeDrawRenderer(renderer: Long, engine: Long)
     external fun nativeDestroyRenderer(renderer: Long)
     external fun nativeSnapshotLength(): Int
+    external fun nativeSettingsRoomState(engine: Long): Int
 }

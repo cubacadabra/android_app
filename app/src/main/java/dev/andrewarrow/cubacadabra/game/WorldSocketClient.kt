@@ -19,7 +19,8 @@ enum class WorldConnectionState(val label: String) {
 }
 
 data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
-data class PresenceEvent(val type: String, val playerId: String)
+data class PresenceEvent(val type: String, val playerId: String, val username: String? = null)
+data class UsernameEvent(val type: String, val username: String?, val code: String?)
 data class MovementEvent(val playerId: String, val player: RemotePlayer)
 
 class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
@@ -33,6 +34,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private val playerId = preferences.getString("player-id", null) ?: "android-${UUID.randomUUID()}".also {
         preferences.edit().putString("player-id", it).apply()
     }
+    var username: String = preferences.getString("username", null)
+        ?.takeIf { it.isNotBlank() }
+        ?: "Android Player ${playerId.takeLast(4).uppercase()}"
+        private set
+    private var pendingUsername = username
     private var socket: WebSocket? = null
     private var worldId: String? = null
     private var stopped = true
@@ -44,6 +50,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     var onStateChange: (WorldConnectionState) -> Unit = {}
     var onPresence: (PresenceEvent) -> Unit = {}
     var onMovement: (MovementEvent) -> Unit = {}
+    var onUsername: (UsernameEvent) -> Unit = {}
 
     fun connect(nextWorldId: String) {
         val normalized = nextWorldId.trim()
@@ -94,6 +101,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             if (webSocket != socket || stopped) return
             reconnectAttempt = 0
             notifyState(WorldConnectionState.CONNECTED)
+            sendUsername(pendingUsername, webSocket)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -116,6 +124,18 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
     private fun handle(event: JSONObject) {
         val type = event.optString("type")
+        if (type == "username_updated" || type == "username_error") {
+            val updated = event.optString("username").takeIf { it.isNotBlank() }
+            if (type == "username_updated" && updated != null) {
+                username = updated
+                pendingUsername = updated
+                preferences.edit().putString("username", updated).apply()
+            } else if (type == "username_error") {
+                pendingUsername = username
+            }
+            onUsername(UsernameEvent(type, updated, event.optString("code").takeIf { it.isNotBlank() }))
+            return
+        }
         val id = event.optString("id")
         if (id.isEmpty() || id == playerId) return
         if (type == "move") {
@@ -125,9 +145,27 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
                 moving = event.optBoolean("moving"),
                 sprinting = event.optBoolean("sprinting"),
             )))
-        } else if (type == "player_join" || type == "player_leave") {
-            onPresence(PresenceEvent(type, id))
+        } else if (type == "player_join" || type == "player_leave" || type == "player_name") {
+            onPresence(PresenceEvent(type, id, event.optString("username").takeIf { it.isNotBlank() }))
         }
+    }
+
+    fun setUsername(value: String) {
+        val normalized = value.trim().replace(Regex("\\s+"), " ")
+        if (normalized.length !in 2..24 || !normalized.matches(Regex("[A-Za-z0-9 _-]+"))) {
+            onUsername(UsernameEvent("username_error", null, "invalid_username"))
+            return
+        }
+        pendingUsername = normalized
+        socket?.let { sendUsername(normalized, it) }
+    }
+
+    private fun sendUsername(value: String, webSocket: WebSocket) {
+        if (stopped) return
+        webSocket.send(JSONObject().apply {
+            put("type", "set_username")
+            put("username", value)
+        }.toString())
     }
 
     private fun scheduleReconnect() {
