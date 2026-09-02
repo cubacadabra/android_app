@@ -84,6 +84,8 @@ build_one() {
     fi
     cp "$rust_root/target/$target/release/libcubacadabra_engine.so" \
         "$output_root/$abi/libcubacadabra_engine.so"
+    cp "$ndk_root/toolchains/llvm/prebuilt/$toolchain_host/sysroot/usr/lib/$target/libc++_shared.so" \
+        "$output_root/$abi/libc++_shared.so"
 }
 
 build_one aarch64-linux-android arm64-v8a
