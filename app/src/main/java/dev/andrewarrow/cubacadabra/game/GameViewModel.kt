@@ -35,7 +35,7 @@ data class GameUiState(
     val username: String = "",
     val usernameStatus: String = "Choose a name other players can find you by.",
     val settingsRoomState: Int = 0,
-    val settingsRoomOpen: Boolean = false,
+    val usernameEditorOpen: Boolean = false,
     val sprinting: Boolean = false,
 )
 
@@ -54,7 +54,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lookX = 0f
     private var lookY = 0f
     private var zoomDelta = 0f
-    private var settingsRoomDismissedUntilExit = false
+    private var connectedWorldId: String? = null
     private val remotes = sortedMapOf<String, RemotePlayer>()
 
     init {
@@ -86,12 +86,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 engine = created
                 val worldId = loaded.packageData.startWorld
+                NativeEngine.nativeSetUsername(created, socket.username.toByteArray())
+                socket.setHidden(worldId == "settings")
                 update {
                     copy(isLoading = false, packageData = loaded.packageData, worldId = worldId,
                         username = socket.username,
                         frame = NativeEngine.nativeReadFrame(created).decodeFrame())
                 }
-                socket.connect(worldId)
+                connectWorld(worldId)
             }.onFailure { error ->
                 if (engine == 0L) update { copy(isLoading = false, errorMessage = error.message ?: "Unknown error") }
             }
@@ -100,6 +102,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retry() {
         socket.disconnect()
+        connectedWorldId = null
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
         renderer = 0
         if (engine != 0L) NativeEngine.nativeDestroy(engine)
@@ -116,10 +119,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastFrameNanos = frameTimeNanos
         if (previous == null) return
         val delta = min((frameTimeNanos - previous) / 1_000_000_000f, 0.05f).coerceAtLeast(0f)
-        val flatRemotes = remotes.values.flatMap { listOf(it.position.x, it.position.y, it.position.z, it.yaw,
+        val visibleRemotes = if (_state.value.worldId == "settings") emptyList() else remotes.values
+        val flatRemotes = visibleRemotes.flatMap { listOf(it.position.x, it.position.y, it.position.z, it.yaw,
             if (it.moving) 1f else 0f, if (it.sprinting) 1f else 0f) }.toFloatArray()
         NativeEngine.nativeSetRemotePlayers(currentEngine, flatRemotes)
-        val settingsOpen = _state.value.settingsRoomOpen
+        val settingsOpen = _state.value.usernameEditorOpen
         NativeEngine.nativeSetInput(currentEngine, if (settingsOpen) 0f else forward, if (settingsOpen) 0f else strafe,
             if (settingsOpen) false else _state.value.sprinting, if (settingsOpen) false else jumpQueued,
             if (settingsOpen) 0f else lookX, if (settingsOpen) 0f else lookY, if (settingsOpen) 0f else zoomDelta)
@@ -130,36 +134,42 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val packageData = _state.value.packageData
         val nextWorld = packageData?.runtimeWorldIds()?.getOrNull(nextFrame.activeWorldIndex)
         if (nextWorld != null && nextWorld != _state.value.worldId) {
-            remotes.clear()
             forward = 0f; strafe = 0f
+            socket.setHidden(nextWorld == "settings")
             update { copy(worldId = nextWorld, sprinting = false) }
-            socket.connect(nextWorld)
+            connectWorld(nextWorld)
         }
         update { copy(frame = nextFrame) }
-        socket.sendMove(nextFrame.player.position, nextFrame.player.yaw, nextFrame.player.moving, nextFrame.player.sprinting)
+        if (_state.value.worldId != "settings") {
+            socket.sendMove(nextFrame.player.position, nextFrame.player.yaw, nextFrame.player.moving, nextFrame.player.sprinting)
+        }
     }
 
     fun setMove(strafe: Float, forward: Float) {
-        if (_state.value.settingsRoomOpen) return
+        if (_state.value.usernameEditorOpen) return
         this.strafe = strafe; this.forward = forward
     }
-    fun jump() { if (!_state.value.settingsRoomOpen) jumpQueued = true }
+    fun jump() { if (!_state.value.usernameEditorOpen) jumpQueued = true }
     fun toggleSprinting() {
-        if (!_state.value.settingsRoomOpen) update { copy(sprinting = !sprinting) }
+        if (!_state.value.usernameEditorOpen) update { copy(sprinting = !sprinting) }
     }
     fun lookBy(dx: Float, dy: Float) {
-        if (!_state.value.settingsRoomOpen) {
+        if (!_state.value.usernameEditorOpen) {
             lookX += dx
             lookY += dy
         }
     }
     fun zoomBy(scale: Float) {
-        if (!_state.value.settingsRoomOpen) zoomDelta -= (scale - 1f) * 8f
+        if (!_state.value.usernameEditorOpen) zoomDelta -= (scale - 1f) * 8f
     }
-    fun leaveSettingsRoom() {
-        settingsRoomDismissedUntilExit = true
+    fun requestUsernameEdit() {
+        if (_state.value.settingsRoomState != 2 || _state.value.usernameEditorOpen) return
         forward = 0f; strafe = 0f; jumpQueued = false
-        update { copy(settingsRoomOpen = false) }
+        update { copy(usernameEditorOpen = true, usernameStatus = "Choose a unique name using 2–24 characters.") }
+    }
+    fun cancelUsernameEdit() {
+        forward = 0f; strafe = 0f; jumpQueued = false
+        update { copy(usernameEditorOpen = false) }
     }
     fun saveUsername(value: String) {
         val normalized = value.trim().replace(Regex("\\s+"), " ")
@@ -206,20 +216,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleUsername(event: UsernameEvent) {
         if (event.type == "username_updated" && event.username != null) {
-            update { copy(username = event.username, usernameStatus = "Saved. Your new name is live in this lobby.") }
+            if (engine != 0L) NativeEngine.nativeSetUsername(engine, event.username.toByteArray())
+            update { copy(username = event.username, usernameEditorOpen = false) }
         } else if (event.type == "username_error") {
             update { copy(usernameStatus = if (event.code == "username_taken") "That name is already in use. Try another." else "That name could not be saved. Try again.") }
         }
     }
 
     private fun updateSettingsRoomState(roomState: Int) {
-        if (roomState != 2) settingsRoomDismissedUntilExit = false
-        if (roomState == 2 && !settingsRoomDismissedUntilExit && !_state.value.settingsRoomOpen) {
-            forward = 0f; strafe = 0f; jumpQueued = false
-            update { copy(settingsRoomState = roomState, settingsRoomOpen = true) }
-        } else {
-            update { copy(settingsRoomState = roomState) }
-        }
+        update { copy(settingsRoomState = roomState, usernameEditorOpen = usernameEditorOpen && roomState != 0) }
+    }
+
+    private fun connectWorld(visualWorldId: String) {
+        val networkWorldId = if (visualWorldId == "settings") "lobby" else visualWorldId
+        if (networkWorldId == connectedWorldId) return
+        connectedWorldId = networkWorldId
+        remotes.clear()
+        if (engine != 0L) NativeEngine.nativeSetRemotePlayers(engine, floatArrayOf())
+        socket.connect(networkWorldId)
     }
 
     private fun update(transform: GameUiState.() -> GameUiState) { _state.value = transform(_state.value) }

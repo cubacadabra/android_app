@@ -39,6 +39,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         ?: "Android Player ${playerId.takeLast(4).uppercase()}"
         private set
     private var pendingUsername = username
+    private var hidden = false
     private var socket: WebSocket? = null
     private var worldId: String? = null
     private var stopped = true
@@ -102,6 +103,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             reconnectAttempt = 0
             notifyState(WorldConnectionState.CONNECTED)
             sendUsername(pendingUsername, webSocket)
+            sendVisibility(webSocket)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -165,6 +167,20 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         webSocket.send(JSONObject().apply {
             put("type", "set_username")
             put("username", value)
+        }.toString())
+    }
+
+    fun setHidden(nextHidden: Boolean) {
+        if (hidden == nextHidden) return
+        hidden = nextHidden
+        socket?.let(::sendVisibility)
+    }
+
+    private fun sendVisibility(webSocket: WebSocket) {
+        if (stopped) return
+        webSocket.send(JSONObject().apply {
+            put("type", "set_hidden")
+            put("hidden", hidden)
         }.toString())
     }
 

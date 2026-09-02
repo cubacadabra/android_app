@@ -30,4 +30,5 @@ internal object NativeEngine {
     external fun nativeDestroyRenderer(renderer: Long)
     external fun nativeSnapshotLength(): Int
     external fun nativeSettingsRoomState(engine: Long): Int
+    external fun nativeSetUsername(engine: Long, username: ByteArray): Boolean
 }

@@ -14,6 +14,8 @@ extern uint8_t *engine_script_buffer_ptr(CubacadabraEngine *engine, uintptr_t le
 extern uint8_t engine_load_script_buffer(CubacadabraEngine *engine);
 extern uint8_t *engine_package_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_package_buffer(CubacadabraEngine *engine);
+extern uint8_t *engine_username_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
+extern uint8_t engine_load_username_buffer(CubacadabraEngine *engine);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
 extern void engine_step(CubacadabraEngine *, float);
 extern const float *engine_snapshot_ptr(const CubacadabraEngine *engine);
@@ -179,6 +181,16 @@ static jint JNICALL nativeSettingsRoomState(JNIEnv *env, jclass klass, jlong val
     return (jint)engine_settings_room_state(engine(value));
 }
 
+static jboolean JNICALL nativeSetUsername(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
+    (void)klass;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    uint8_t *destination = engine_username_buffer_ptr(engine(value), (uintptr_t)length);
+    if (!destination && length > 0) return 0;
+    (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)destination);
+    if ((*env)->ExceptionCheck(env)) return 0;
+    return engine_load_username_buffer(engine(value));
+}
+
 static JNINativeMethod methods[] = {
     {"nativeCreate", "()J", (void *)nativeCreate},
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
@@ -193,6 +205,7 @@ static JNINativeMethod methods[] = {
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},
     {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
+    {"nativeSetUsername", "(J[B)Z", (void *)nativeSetUsername},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
