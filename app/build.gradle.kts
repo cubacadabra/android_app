@@ -1,16 +1,24 @@
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.OutputDirectory
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
 }
 
 val rustRoot = rootProject.file("../rust")
-val rustJniLibs = layout.buildDirectory.dir("generated/rust/jniLibs")
 val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
 
-val buildRust by tasks.registering(Exec::class) {
+abstract class BuildRustTask : Exec() {
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+}
+
+val buildRust = tasks.register<BuildRustTask>("buildRust") {
+    outputDirectory.set(layout.buildDirectory.dir("generated/rust/jniLibs"))
     inputs.files(fileTree(rustRoot) { exclude("target/**") })
-    outputs.dir(rustJniLibs)
-    commandLine("sh", rustBuildScript.absolutePath, rustRoot.absolutePath, rustJniLibs.get().asFile.absolutePath)
+    commandLine("sh", rustBuildScript.absolutePath, rustRoot.absolutePath, outputDirectory.get().asFile.absolutePath)
 }
 
 android {
@@ -38,8 +46,6 @@ android {
         }
     }
 
-    sourceSets["main"].jniLibs.srcDir(rustJniLibs)
-
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -60,6 +66,15 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = false
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(
+            buildRust,
+            BuildRustTask::outputDirectory,
+        )
     }
 }
 
