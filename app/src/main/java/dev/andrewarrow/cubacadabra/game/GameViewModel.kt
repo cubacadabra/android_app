@@ -72,7 +72,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.onStateChange = { state -> update { copy(connectionState = state) } }
         socket.onPresence = ::handlePresence
         socket.onUsername = ::handleUsername
-        socket.onMovement = { event -> remotes[event.playerId] = event.player }
+        socket.onMovement = { event -> viewModelScope.launch(Dispatchers.Main.immediate) {
+            if (event.isSelf) {
+                if (event.corrected && engine != 0L) {
+                    NativeEngine.nativeReconcilePlayer(
+                        engine,
+                        event.player.position.x,
+                        event.player.position.y,
+                        event.player.position.z,
+                        event.player.yaw,
+                    )
+                }
+            } else {
+                remotes[event.playerId] = event.player
+            }
+        }
         socket.onExperience = ::handleExperience
         load()
     }

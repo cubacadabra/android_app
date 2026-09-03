@@ -17,6 +17,7 @@ extern uint8_t engine_load_package_buffer(CubacadabraEngine *engine);
 extern uint8_t *engine_username_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_username_buffer(CubacadabraEngine *engine);
 extern uint8_t engine_start_world(CubacadabraEngine *, uintptr_t);
+extern void engine_reconcile_player(CubacadabraEngine *, float, float, float, float);
 extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
@@ -199,6 +200,11 @@ static jboolean JNICALL nativeStartWorld(JNIEnv *env, jclass klass, jlong value,
     return engine_start_world(engine(value), (uintptr_t)(world < 0 ? 0 : world));
 }
 
+static void JNICALL nativeReconcilePlayer(JNIEnv *env, jclass klass, jlong value, jfloat x, jfloat y, jfloat z, jfloat yaw) {
+    (void)env; (void)klass;
+    engine_reconcile_player(engine(value), x, y, z, yaw);
+}
+
 static void JNICALL nativeSetBuildBlockCount(JNIEnv *env, jclass klass, jlong value, jint count) {
     (void)env; (void)klass;
     engine_set_build_block_count(engine(value), (uintptr_t)(count < 0 ? 0 : count));
@@ -227,6 +233,7 @@ static JNINativeMethod methods[] = {
     {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
     {"nativeSetUsername", "(J[B)Z", (void *)nativeSetUsername},
     {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
+    {"nativeReconcilePlayer", "(JFFFF)V", (void *)nativeReconcilePlayer},
     {"nativeSetBuildBlockCount", "(JI)V", (void *)nativeSetBuildBlockCount},
     {"nativeSetBuildBlock", "(JIFFFFFFII)V", (void *)nativeSetBuildBlock},
 };

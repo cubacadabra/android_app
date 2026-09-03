@@ -21,7 +21,12 @@ enum class WorldConnectionState(val label: String) {
 data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
 data class PresenceEvent(val type: String, val playerId: String, val username: String? = null)
 data class UsernameEvent(val type: String, val username: String?, val code: String?)
-data class MovementEvent(val playerId: String, val player: RemotePlayer)
+data class MovementEvent(
+    val playerId: String,
+    val player: RemotePlayer,
+    val isSelf: Boolean = false,
+    val corrected: Boolean = false,
+)
 data class BuildBlock(val id: String, val x: Float, val y: Float, val z: Float, val rotation: Int, val shape: String, val color: String)
 data class ExperienceEvent(
     val type: String,
@@ -188,14 +193,14 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             return
         }
         val id = event.optString("id")
-        if (id.isEmpty() || id == playerId) return
+        if (id.isEmpty()) return
         if (type == "move") {
             onMovement(MovementEvent(id, RemotePlayer(
                 position = Vec3(event.optDouble("x").toFloat(), event.optDouble("y").toFloat(), event.optDouble("z").toFloat()),
                 yaw = event.optDouble("yaw").toFloat(),
                 moving = event.optBoolean("moving"),
                 sprinting = event.optBoolean("sprinting"),
-            )))
+            ), isSelf = id == playerId, corrected = event.optBoolean("corrected")))
         } else if (type == "player_join" || type == "player_leave" || type == "player_name") {
             onPresence(PresenceEvent(type, id, event.optString("username").takeIf { it.isNotBlank() }))
         }
