@@ -61,16 +61,8 @@ data class LoadedGamePackage(val packageData: GamePackage, val manifest: String,
 class GamePackageException(message: String) : Exception(message)
 
 object ClientConfiguration {
-    val gameBaseUrl: String
-        get() = if (BuildConfig.DEBUG) {
-            BuildConfig.CUBACADABRA_GAME_BASE_URL
-        } else {
-            "https://cubacadabra.com/games/first-game/"
-        }
-
-    val backendUrl: String
-        get() = if (BuildConfig.DEBUG) BuildConfig.CUBACADABRA_BACKEND_URL
-        else "wss://cubacadabra.andrew-f97.workers.dev"
+    val gameBaseUrl: String get() = BuildConfig.CUBACADABRA_GAME_BASE_URL
+    val backendUrl: String get() = BuildConfig.CUBACADABRA_BACKEND_URL
 }
 
 class GamePackageLoader {

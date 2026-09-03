@@ -9,6 +9,8 @@ plugins {
 
 val rustRoot = rootProject.file("../rust")
 val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
+val configuredGameBaseUrl = providers.gradleProperty("CUBACADABRA_GAME_BASE_URL").orNull
+val configuredBackendUrl = providers.gradleProperty("CUBACADABRA_BACKEND_URL").orNull
 
 abstract class BuildRustTask : Exec() {
     @get:OutputDirectory
@@ -18,6 +20,7 @@ abstract class BuildRustTask : Exec() {
 val buildRust = tasks.register<BuildRustTask>("buildRust") {
     outputDirectory.set(layout.buildDirectory.dir("generated/rust/jniLibs"))
     inputs.files(fileTree(rustRoot) { exclude("target/**") })
+    inputs.file(rustBuildScript)
     commandLine("sh", rustBuildScript.absolutePath, rustRoot.absolutePath, outputDirectory.get().asFile.absolutePath)
 }
 
@@ -31,9 +34,6 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
-
-        buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${providers.gradleProperty("CUBACADABRA_GAME_BASE_URL").orNull ?: "http://127.0.0.1:5173/games/first-game/"}\"")
-        buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${providers.gradleProperty("CUBACADABRA_BACKEND_URL").orNull ?: "ws://127.0.0.1:8787"}\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -59,8 +59,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "http://127.0.0.1:5173/games/first-game/"}\"")
+            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${configuredBackendUrl ?: "ws://127.0.0.1:8787"}\"")
+        }
         release {
             signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "https://cubacadabra.com/games/first-game/"}\"")
+            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${configuredBackendUrl ?: "wss://cubacadabra.andrew-f97.workers.dev"}\"")
         }
     }
 
