@@ -1,6 +1,7 @@
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.OutputDirectory
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -9,8 +10,17 @@ plugins {
 
 val rustRoot = rootProject.file("../rust")
 val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
-val configuredGameBaseUrl = providers.gradleProperty("CUBACADABRA_GAME_BASE_URL").orNull
-val configuredBackendUrl = providers.gradleProperty("CUBACADABRA_BACKEND_URL").orNull
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { stream -> load(stream) }
+}
+fun configuredValue(name: String): String? =
+    providers.gradleProperty(name).orNull ?: localProperties.getProperty(name)
+
+val configuredGameBaseUrl = configuredValue("CUBACADABRA_GAME_BASE_URL")
+val configuredBackendUrl = configuredValue("CUBACADABRA_BACKEND_URL")
+val releaseGameBaseUrl = configuredGameBaseUrl ?: "https://cubacadabra.com/games/first-game/"
+val releaseBackendUrl = configuredBackendUrl ?: "wss://cubacadabra.andrew-f97.workers.dev"
+val releaseUsesCleartext = releaseGameBaseUrl.startsWith("http://") || releaseBackendUrl.startsWith("ws://")
 
 abstract class BuildRustTask : Exec() {
     @get:OutputDirectory
@@ -65,8 +75,9 @@ android {
         }
         release {
             signingConfig = signingConfigs.getByName("debug")
-            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "https://cubacadabra.com/games/first-game/"}\"")
-            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${configuredBackendUrl ?: "wss://cubacadabra.andrew-f97.workers.dev"}\"")
+            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"$releaseGameBaseUrl\"")
+            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"$releaseBackendUrl\"")
+            resValue("bool", "allow_cleartext_traffic", releaseUsesCleartext.toString())
         }
     }
 
