@@ -43,7 +43,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val preferences = context.getSharedPreferences("cubacadabra", Context.MODE_PRIVATE)
-    private val playerId = preferences.getString("player-id", null) ?: "android-${UUID.randomUUID()}".also {
+    val playerId = preferences.getString("player-id", null) ?: "android-${UUID.randomUUID()}".also {
         preferences.edit().putString("player-id", it).apply()
     }
     var username: String = preferences.getString("username", null)
