@@ -22,6 +22,18 @@ data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean,
 data class PresenceEvent(val type: String, val playerId: String, val username: String? = null)
 data class UsernameEvent(val type: String, val username: String?, val code: String?)
 data class MovementEvent(val playerId: String, val player: RemotePlayer)
+data class BuildBlock(val id: String, val x: Float, val y: Float, val z: Float, val rotation: Int, val shape: String, val color: String)
+data class ExperienceEvent(
+    val type: String,
+    val kind: String? = null,
+    val phase: String? = null,
+    val prompt: String? = null,
+    val sessionWorldId: String? = null,
+    val playerIds: List<String> = emptyList(),
+    val startsAt: Long? = null,
+    val serverNow: Long? = null,
+    val blocks: List<BuildBlock> = emptyList(),
+)
 
 class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     companion object {
@@ -52,6 +64,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     var onPresence: (PresenceEvent) -> Unit = {}
     var onMovement: (MovementEvent) -> Unit = {}
     var onUsername: (UsernameEvent) -> Unit = {}
+    var onExperience: (ExperienceEvent) -> Unit = {}
 
     fun connect(nextWorldId: String) {
         val normalized = nextWorldId.trim()
@@ -138,6 +151,42 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             onUsername(UsernameEvent(type, updated, event.optString("code").takeIf { it.isNotBlank() }))
             return
         }
+        if (type == "experience_state" || type == "experience_launch") {
+            val blocks = buildList {
+                val values = event.optJSONArray("blocks") ?: return@buildList
+                for (index in 0 until values.length()) {
+                    val block = values.optJSONObject(index) ?: continue
+                    add(BuildBlock(
+                        id = block.optString("id"),
+                        x = block.optDouble("x").toFloat(),
+                        y = block.optDouble("y").toFloat(),
+                        z = block.optDouble("z").toFloat(),
+                        rotation = block.optInt("rotation", 0),
+                        shape = block.optString("shape", "cube"),
+                        color = block.optString("color", "coral"),
+                    ))
+                }
+            }
+            val playerIds = buildList {
+                val values = event.optJSONArray("playerIds") ?: return@buildList
+                for (index in 0 until values.length()) values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
+            onExperience(ExperienceEvent(
+                type = type,
+                kind = event.optString("kind").takeIf { it.isNotBlank() },
+                phase = event.optString("phase").takeIf { it.isNotBlank() },
+                prompt = event.optString("prompt").takeIf { it.isNotBlank() },
+                sessionWorldId = event.optString("sessionWorldId").takeIf { it.isNotBlank() },
+                playerIds = playerIds,
+                startsAt = (event.optJSONObject("launch") ?: event).optLong("startsAt").takeIf {
+                    (event.optJSONObject("launch") ?: event).has("startsAt")
+                        && !(event.optJSONObject("launch") ?: event).isNull("startsAt")
+                },
+                serverNow = event.optLong("serverNow").takeIf { event.has("serverNow") },
+                blocks = blocks,
+            ))
+            return
+        }
         val id = event.optString("id")
         if (id.isEmpty() || id == playerId) return
         if (type == "move") {
@@ -174,6 +223,12 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         if (hidden == nextHidden) return
         hidden = nextHidden
         socket?.let(::sendVisibility)
+    }
+
+    fun sendExperience(type: String, payload: JSONObject = JSONObject()) {
+        val current = socket ?: return
+        val message = JSONObject(payload.toString()).apply { put("type", type) }
+        current.send(message.toString())
     }
 
     private fun sendVisibility(webSocket: WebSocket) {

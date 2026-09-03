@@ -31,4 +31,7 @@ internal object NativeEngine {
     external fun nativeSnapshotLength(): Int
     external fun nativeSettingsRoomState(engine: Long): Int
     external fun nativeSetUsername(engine: Long, username: ByteArray): Boolean
+    external fun nativeStartWorld(engine: Long, world: Int): Boolean
+    external fun nativeSetBuildBlockCount(engine: Long, count: Int)
+    external fun nativeSetBuildBlock(engine: Long, index: Int, x: Float, y: Float, z: Float, width: Float, height: Float, depth: Float, color: Int, rotation: Int)
 }

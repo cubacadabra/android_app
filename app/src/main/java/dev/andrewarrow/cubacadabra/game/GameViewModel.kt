@@ -21,6 +21,7 @@ data class EngineFrame(
     val remotePlayers: Int,
     val pads: List<EnginePad>,
     val activeWorldIndex: Int,
+    val cameraYaw: Float,
 )
 
 data class PresenceNotice(val message: String, val joined: Boolean, val id: Long = System.nanoTime())
@@ -37,6 +38,14 @@ data class GameUiState(
     val settingsRoomState: Int = 0,
     val usernameEditorOpen: Boolean = false,
     val sprinting: Boolean = false,
+    val buildPrompt: String = "",
+    val buildPhase: String = "build",
+    val buildBlocks: List<BuildBlock> = emptyList(),
+    val buildTool: String = "place",
+    val buildShape: String = "cube",
+    val buildColor: String = "coral",
+    val lobbyLaunchStartsAt: Long? = null,
+    val lobbyLaunchClockOffset: Long = 0L,
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,6 +64,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lookY = 0f
     private var zoomDelta = 0f
     private var connectedWorldId: String? = null
+    private var pendingSessionWorldId: String? = null
     private val remotes = sortedMapOf<String, RemotePlayer>()
 
     init {
@@ -62,6 +72,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.onPresence = ::handlePresence
         socket.onUsername = ::handleUsername
         socket.onMovement = { event -> remotes[event.playerId] = event.player }
+        socket.onExperience = ::handleExperience
         load()
     }
 
@@ -192,6 +203,102 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun world(): WorldDefinition? = _state.value.packageData?.worldDefinition(_state.value.worldId)
 
+    private fun handleExperience(event: ExperienceEvent) {
+        if (event.type == "experience_launch" && event.playerIds.contains(socket.playerId)) {
+            val session = event.sessionWorldId ?: return
+            val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("real-game") ?: -1
+            if (index >= 0 && NativeEngine.nativeStartWorld(engine, index)) {
+                pendingSessionWorldId = session
+                update { copy(worldId = "real-game", buildPhase = "build", buildPrompt = "", buildBlocks = emptyList()) }
+                connectWorld("real-game")
+            }
+            return
+        }
+        if (event.type == "experience_state" && event.kind == "lobby") {
+            val offset = System.currentTimeMillis() - (event.serverNow ?: System.currentTimeMillis())
+            update { copy(lobbyLaunchStartsAt = event.startsAt, lobbyLaunchClockOffset = offset) }
+            return
+        }
+        if (event.type != "experience_state" || event.kind != "build") return
+        update { copy(buildPhase = event.phase ?: "build", buildPrompt = event.prompt ?: "Build together.", buildBlocks = event.blocks) }
+        setNativeBuildBlocks(event.blocks)
+    }
+
+    private fun setNativeBuildBlocks(blocks: List<BuildBlock>) {
+        if (engine == 0L) return
+        NativeEngine.nativeSetBuildBlockCount(engine, blocks.size)
+        blocks.forEachIndexed { index, block ->
+            val size = when (block.shape) {
+                "beam" -> floatArrayOf(3f, 1f, 1f)
+                "slab" -> floatArrayOf(2f, .5f, 2f)
+                else -> floatArrayOf(1f, 1f, 1f)
+            }
+            val color = mapOf("coral" to 0xed725b, "butter" to 0xf2c764, "periwinkle" to 0x7898dc, "ink" to 0x264b4b, "paper" to 0xf6f1e7)[block.color] ?: 0xed725b
+            NativeEngine.nativeSetBuildBlock(engine, index, block.x, block.y, block.z, size[0], size[1], size[2], color, block.rotation)
+        }
+    }
+
+    fun cycleBuildShape() {
+        val shapes = listOf("cube", "beam", "slab")
+        update { copy(buildShape = shapes[(shapes.indexOf(buildShape).coerceAtLeast(0) + 1) % shapes.size]) }
+    }
+
+    fun setBuildTool(tool: String) {
+        if (tool in listOf("place", "rotate", "remove", "recolor")) update { copy(buildTool = tool) }
+    }
+
+    fun cycleBuildColor() {
+        val colors = listOf("coral", "butter", "periwinkle", "ink", "paper")
+        update { copy(buildColor = colors[(colors.indexOf(buildColor).coerceAtLeast(0) + 1) % colors.size]) }
+    }
+
+    fun performBuildAction() {
+        val current = _state.value
+        val frame = current.frame ?: return
+        if (current.worldId != "real-game" || current.buildPhase != "build") return
+        val sizeY = when (current.buildShape) { "slab" -> .5f; else -> 1f }
+        val target = JSONObject().apply {
+            put("x", kotlin.math.round((frame.player.position.x + kotlin.math.sin(frame.cameraYaw) * 4) * 2) / 2)
+            put("y", sizeY / 2)
+            put("z", kotlin.math.round((frame.player.position.z - kotlin.math.cos(frame.cameraYaw) * 4) * 2) / 2)
+            put("shape", current.buildShape)
+            put("color", current.buildColor)
+        }
+        if (current.buildTool == "place") {
+            socket.sendExperience("build_action", JSONObject().apply { put("action", "place"); put("block", target) })
+            return
+        }
+        val nearest = current.buildBlocks.minByOrNull { block ->
+            val dx = block.x - target.optDouble("x").toFloat(); val dy = block.y - target.optDouble("y").toFloat(); val dz = block.z - target.optDouble("z").toFloat()
+            dx * dx + dy * dy + dz * dz
+        } ?: return
+        val dx = nearest.x - target.optDouble("x").toFloat(); val dy = nearest.y - target.optDouble("y").toFloat(); val dz = nearest.z - target.optDouble("z").toFloat()
+        if (dx * dx + dy * dy + dz * dz >= 4.41f) return
+        socket.sendExperience("build_action", JSONObject().apply {
+            put("action", current.buildTool); put("id", nearest.id)
+            if (current.buildTool == "recolor") put("color", current.buildColor)
+        })
+    }
+
+    fun saveBuild() = socket.sendExperience("build_save")
+
+    fun returnToLobby() {
+        pendingSessionWorldId = null
+        val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
+        if (index >= 0 && NativeEngine.nativeStartWorld(engine, index)) {
+            update { copy(worldId = "lobby", buildPhase = "build", buildPrompt = "", buildBlocks = emptyList(), lobbyLaunchStartsAt = null) }
+            setNativeBuildBlocks(emptyList())
+            connectWorld("lobby")
+        }
+    }
+
+    fun lobbyLaunchStatus(pad: LaunchPadDefinition, live: EnginePad?): String {
+        if (!pad.enabled) return pad.availabilityLabel
+        val startsAt = _state.value.lobbyLaunchStartsAt ?: return padStatus(live)
+        val remaining = startsAt + _state.value.lobbyLaunchClockOffset - System.currentTimeMillis()
+        return if (remaining > 0) String.format("%.1fs", remaining / 1000f) else "LAUNCHING"
+    }
+
     private fun handlePresence(event: PresenceEvent) {
         if (event.type == "player_leave") remotes.remove(event.playerId)
         val fallback = when {
@@ -228,7 +335,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun connectWorld(visualWorldId: String) {
-        val networkWorldId = if (visualWorldId == "settings") "lobby" else visualWorldId
+        val networkWorldId = when {
+            visualWorldId == "settings" -> "lobby"
+            visualWorldId == "real-game" && pendingSessionWorldId != null -> pendingSessionWorldId!!
+            else -> visualWorldId
+        }
         if (networkWorldId == connectedWorldId) return
         connectedWorldId = networkWorldId
         remotes.clear()
@@ -260,5 +371,12 @@ private fun FloatArray.decodeFrame(): EngineFrame {
         remotePlayers = getOrElse(metadata + 2) { 0f }.toInt(),
         pads = pads,
         activeWorldIndex = getOrElse(metadata + 4) { 0f }.toInt(),
+        cameraYaw = getOrElse(metadata + 5) { 0f },
     )
+}
+
+private fun padStatus(pad: EnginePad?) = when {
+    pad == null -> "READY"
+    pad.seconds > 0f -> "${pad.occupants} · ${pad.seconds.toInt()}s"
+    else -> "${pad.occupants} READY"
 }

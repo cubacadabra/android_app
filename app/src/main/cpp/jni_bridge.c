@@ -16,6 +16,9 @@ extern uint8_t *engine_package_buffer_ptr(CubacadabraEngine *engine, uintptr_t l
 extern uint8_t engine_load_package_buffer(CubacadabraEngine *engine);
 extern uint8_t *engine_username_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_username_buffer(CubacadabraEngine *engine);
+extern uint8_t engine_start_world(CubacadabraEngine *, uintptr_t);
+extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
+extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
 extern void engine_step(CubacadabraEngine *, float);
 extern const float *engine_snapshot_ptr(const CubacadabraEngine *engine);
@@ -191,6 +194,23 @@ static jboolean JNICALL nativeSetUsername(JNIEnv *env, jclass klass, jlong value
     return engine_load_username_buffer(engine(value));
 }
 
+static jboolean JNICALL nativeStartWorld(JNIEnv *env, jclass klass, jlong value, jint world) {
+    (void)env; (void)klass;
+    return engine_start_world(engine(value), (uintptr_t)(world < 0 ? 0 : world));
+}
+
+static void JNICALL nativeSetBuildBlockCount(JNIEnv *env, jclass klass, jlong value, jint count) {
+    (void)env; (void)klass;
+    engine_set_build_block_count(engine(value), (uintptr_t)(count < 0 ? 0 : count));
+}
+
+static void JNICALL nativeSetBuildBlock(JNIEnv *env, jclass klass, jlong value, jint index, jfloat x, jfloat y, jfloat z,
+                                        jfloat width, jfloat height, jfloat depth, jint color, jint rotation) {
+    (void)env; (void)klass;
+    engine_set_build_block(engine(value), (uintptr_t)(index < 0 ? 0 : index), x, y, z, width, height, depth,
+                           (uint32_t)color, (uint8_t)rotation);
+}
+
 static JNINativeMethod methods[] = {
     {"nativeCreate", "()J", (void *)nativeCreate},
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
@@ -206,6 +226,9 @@ static JNINativeMethod methods[] = {
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},
     {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
     {"nativeSetUsername", "(J[B)Z", (void *)nativeSetUsername},
+    {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
+    {"nativeSetBuildBlockCount", "(JI)V", (void *)nativeSetBuildBlockCount},
+    {"nativeSetBuildBlock", "(JIFFFFFFII)V", (void *)nativeSetBuildBlock},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

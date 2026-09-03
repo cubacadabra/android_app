@@ -27,7 +27,7 @@ data class GamePackage(
     fun runtimeWorldIds(): List<String> = listOf("lobby") + worlds.keys.sorted()
 }
 
-data class LaunchRoute(val destinationWorld: String)
+data class LaunchRoute(val destinationWorld: String, val authoritative: Boolean = false)
 data class SceneDefinition(val eyebrow: String, val title: String, val description: String, val maxPlayers: Int)
 data class WorldSettings(
     val groundSize: Float,
@@ -44,6 +44,8 @@ data class LaunchPadDefinition(
     val color: String,
     val radius: Float,
     val countdown: Float,
+    val enabled: Boolean = true,
+    val availabilityLabel: String = "COMING SOON",
 )
 data class BlockDefinition(val position: List<Float>, val size: List<Float>, val color: String, val outline: Boolean)
 data class WorldDefinition(
@@ -108,7 +110,7 @@ private fun parsePackage(json: JSONObject): GamePackage {
     }
     return GamePackage(
         startWorld = json.getString("startWorld"),
-        launch = json.getJSONObject("launch").let { LaunchRoute(it.getString("destinationWorld")) },
+        launch = json.getJSONObject("launch").let { LaunchRoute(it.getString("destinationWorld"), it.optBoolean("authoritative", false)) },
         scene = parseScene(json.getJSONObject("scene")),
         palette = jsonObjectMap(json.optJSONObject("palette")),
         world = parseWorldSettings(json.optJSONObject("world")),
@@ -156,6 +158,8 @@ private fun parsePads(array: JSONArray?): List<LaunchPadDefinition> = buildList 
             color = value.getString("color"),
             radius = value.optDouble("radius", 2.7).toFloat(),
             countdown = value.optDouble("countdown", 8.0).toFloat(),
+            enabled = value.optBoolean("enabled", true),
+            availabilityLabel = value.optString("availabilityLabel", "COMING SOON"),
         ))
     }
 }

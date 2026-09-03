@@ -104,12 +104,16 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             if (state.worldId != "settings") {
-                GameHeader(state)
+                GameHeader(state, model)
                 state.presenceNotice?.let { notice ->
                     PresenceNotice(notice.message)
                 }
             }
             Spacer(Modifier.weight(1f))
+            if (state.worldId == "real-game") {
+                BuildToolbar(state, model)
+                Spacer(Modifier.height(10.dp))
+            }
             GameControls(model, state.sprinting)
         }
         if (state.usernameEditorOpen) UsernameEditorDialog(state, model)
@@ -190,7 +194,56 @@ private fun GameAtmosphere(isSession: Boolean) {
 }
 
 @Composable
-private fun GameHeader(state: GameUiState) {
+private fun BuildToolbar(state: GameUiState, model: GameViewModel) {
+    Surface(
+        Modifier.fillMaxWidth().widthIn(max = 520.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = .92f),
+        tonalElevation = 5.dp,
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(if (state.buildPhase == "tour") "TOUR MODE" else "BUILD TOGETHER", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text(if (state.buildPhase == "tour") "Walk through what you made together." else state.buildPrompt.ifBlank { "Build together." }, color = MaterialTheme.colorScheme.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            if (state.buildPhase == "build") {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("place", "rotate", "remove", "recolor").forEach { tool ->
+                        BuildToolButton(tool.uppercase(), state.buildTool == tool) { model.setBuildTool(tool) }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    BuildToolButton("SHAPE · ${state.buildShape.uppercase()}") { model.cycleBuildShape() }
+                    BuildToolButton("COLOR · ${state.buildColor.uppercase()}") { model.cycleBuildColor() }
+                    Spacer(Modifier.weight(1f))
+                    BuildToolButton("USE TOOL", true) { model.performBuildAction() }
+                }
+                Text("Face the build area, then tap USE TOOL.", color = MaterialTheme.colorScheme.onSurface.copy(.58f), fontSize = 10.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${state.buildBlocks.size} blocks", color = MaterialTheme.colorScheme.onSurface.copy(.58f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                if (state.buildPhase == "build") BuildToolButton("SAVE & TOUR", true) { model.saveBuild() }
+                else BuildToolButton("RETURN TO LOBBY") { model.returnToLobby() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BuildToolButton(label: String, active: Boolean = false, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(38.dp),
+        shape = RoundedCornerShape(19.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .08f),
+            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+    ) { Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp) }
+}
+
+@Composable
+private fun GameHeader(state: GameUiState, model: GameViewModel) {
     val world = state.packageData?.worldDefinition(state.worldId)
     val frame = state.frame
     Surface(
@@ -218,9 +271,9 @@ private fun GameHeader(state: GameUiState) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     world?.launchPads?.forEachIndexed { index, pad ->
                         val live = frame?.pads?.getOrNull(index)
-                        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(.09f)).padding(10.dp)) {
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(if (pad.enabled) .09f else .045f)).padding(10.dp).alpha(if (pad.enabled) 1f else .72f)) {
                             Text(pad.code, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
-                            Text(padStatus(live), color = Color.White.copy(.78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(model.lobbyLaunchStatus(pad, live), color = Color.White.copy(if (pad.enabled) .78f else .48f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
