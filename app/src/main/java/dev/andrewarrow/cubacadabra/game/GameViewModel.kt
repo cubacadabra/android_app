@@ -337,7 +337,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.setUsername(normalized)
     }
     fun createRenderer(surface: android.view.Surface, width: Float, height: Float) {
-        if (engine != 0L && renderer == 0L) renderer = NativeEngine.nativeCreateRenderer(engine, surface, width, height)
+        if (engine == 0L || renderer != 0L) return
+        Log.d(TAG, "creating renderer surfaceValid=${surface.isValid} size=${width}x${height}")
+        renderer = NativeEngine.nativeCreateRenderer(engine, surface, width, height)
+        Log.d(TAG, "renderer created handle=$renderer")
+        if (renderer == 0L && width > 0f && height > 0f) {
+            update { copy(errorMessage = "The Android graphics renderer could not initialize.") }
+        }
     }
     fun resizeRenderer(width: Float, height: Float) { if (renderer != 0L) NativeEngine.nativeResizeRenderer(renderer, width, height) }
     fun draw() { if (renderer != 0L && engine != 0L) NativeEngine.nativeDrawRenderer(renderer, engine) }
