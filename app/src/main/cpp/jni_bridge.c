@@ -21,6 +21,11 @@ extern void engine_reconcile_player(CubacadabraEngine *, float, float, float, fl
 extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
+extern void engine_set_ui_viewport(CubacadabraEngine *, float, float, float, float, float, float, float);
+extern uint8_t engine_ui_pointer(CubacadabraEngine *, uint64_t, uint8_t, float, float);
+extern uint8_t engine_ui_poll_event(CubacadabraEngine *);
+extern const uint8_t *engine_ui_event_ptr(const CubacadabraEngine *);
+extern uintptr_t engine_ui_event_len(const CubacadabraEngine *);
 extern void engine_step(CubacadabraEngine *, float);
 extern const float *engine_snapshot_ptr(const CubacadabraEngine *engine);
 extern uintptr_t engine_snapshot_len(void);
@@ -80,6 +85,34 @@ static void JNICALL nativeSetInput(JNIEnv *env, jclass klass, jlong value, jfloa
                                     jboolean sprint, jboolean jump, jfloat lookX, jfloat lookY, jfloat zoom) {
     (void)env; (void)klass;
     engine_set_input(engine(value), forward, strafe, sprint ? 1 : 0, jump ? 1 : 0, lookX, lookY, zoom);
+}
+
+static void JNICALL nativeSetUiViewport(JNIEnv *env, jclass klass, jlong value, jfloat width, jfloat height,
+                                         jfloat scale, jfloat safeTop, jfloat safeRight, jfloat safeBottom,
+                                         jfloat safeLeft) {
+    (void)env; (void)klass;
+    engine_set_ui_viewport(engine(value), width, height, scale, safeTop, safeRight, safeBottom, safeLeft);
+}
+
+static jboolean JNICALL nativeUiPointer(JNIEnv *env, jclass klass, jlong value, jlong pointerID, jint phase,
+                                         jfloat x, jfloat y) {
+    (void)env; (void)klass;
+    return engine_ui_pointer(engine(value), (uint64_t)pointerID, (uint8_t)phase, x, y) ? JNI_TRUE : JNI_FALSE;
+}
+
+static jboolean JNICALL nativePollUiEvent(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    return engine_ui_poll_event(engine(value)) ? JNI_TRUE : JNI_FALSE;
+}
+
+static jbyteArray JNICALL nativeUiEvent(JNIEnv *env, jclass klass, jlong value) {
+    (void)klass;
+    const uintptr_t length = engine_ui_event_len(engine(value));
+    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
+    if (!result || length == 0) return result;
+    const uint8_t *source = engine_ui_event_ptr(engine(value));
+    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
+    return result;
 }
 
 static void JNICALL nativeStep(JNIEnv *env, jclass klass, jlong value, jfloat delta) {
@@ -222,6 +255,10 @@ static JNINativeMethod methods[] = {
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
     {"nativeLoad", "(J[BZ)Z", (void *)nativeLoad},
     {"nativeSetInput", "(JFFZZFFF)V", (void *)nativeSetInput},
+    {"nativeSetUiViewport", "(JFFFFFFF)V", (void *)nativeSetUiViewport},
+    {"nativeUiPointer", "(JJIFF)Z", (void *)nativeUiPointer},
+    {"nativePollUiEvent", "(J)Z", (void *)nativePollUiEvent},
+    {"nativeUiEvent", "(J)[B", (void *)nativeUiEvent},
     {"nativeStep", "(JF)V", (void *)nativeStep},
     {"nativeReadFrame", "(J)[F", (void *)nativeReadFrame},
     {"nativeSetRemotePlayers", "(J[F)V", (void *)nativeSetRemotePlayers},

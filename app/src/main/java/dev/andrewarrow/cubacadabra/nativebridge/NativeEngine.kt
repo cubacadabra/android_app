@@ -21,6 +21,19 @@ internal object NativeEngine {
         lookY: Float,
         zoomDelta: Float,
     )
+    external fun nativeSetUiViewport(
+        engine: Long,
+        width: Float,
+        height: Float,
+        scale: Float,
+        safeTop: Float,
+        safeRight: Float,
+        safeBottom: Float,
+        safeLeft: Float,
+    )
+    external fun nativeUiPointer(engine: Long, pointerId: Long, phase: Int, x: Float, y: Float): Boolean
+    external fun nativePollUiEvent(engine: Long): Boolean
+    external fun nativeUiEvent(engine: Long): ByteArray
     external fun nativeStep(engine: Long, delta: Float)
     external fun nativeReadFrame(engine: Long): FloatArray
     external fun nativeSetRemotePlayers(engine: Long, players: FloatArray)

@@ -1,11 +1,11 @@
 package dev.andrewarrow.cubacadabra.ui
 
+import android.content.Context
+import android.graphics.PointF
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,22 +14,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,24 +34,21 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.andrewarrow.cubacadabra.game.EnginePad
 import dev.andrewarrow.cubacadabra.game.GameUiState
 import dev.andrewarrow.cubacadabra.game.GameViewModel
-import dev.andrewarrow.cubacadabra.game.WorldConnectionState
 import kotlinx.coroutines.isActive
 
 @Composable
@@ -85,36 +76,17 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
         }
     }
 
-    Box(
-        Modifier.fillMaxSize().background(Color.Black)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    model.lookBy(pan.x, pan.y)
-                    model.zoomBy(zoom)
-                }
-            }
-            .pointerInput(state.settingsRoomState, state.usernameEditorOpen) {
-                detectTapGestures { model.requestUsernameEdit() }
-            },
-    ) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         RustGameSurface(model)
         if (state.worldId != "settings") GameAtmosphere(state.worldId != "lobby")
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(horizontal = 20.dp, vertical = 18.dp),
+                .padding(horizontal = 20.dp, vertical = 10.dp),
         ) {
             if (state.worldId != "settings") {
-                GameHeader(state, model)
-                state.presenceNotice?.let { notice ->
-                    PresenceNotice(notice.message)
-                }
+                state.presenceNotice?.let { notice -> PresenceNotice(notice.message) }
             }
             Spacer(Modifier.weight(1f))
-            if (state.worldId == "real-game") {
-                BuildToolbar(state, model)
-                Spacer(Modifier.height(10.dp))
-            }
-            GameControls(model, state.sprinting)
         }
         if (state.usernameEditorOpen) UsernameEditorDialog(state, model)
     }
@@ -131,7 +103,7 @@ private fun UsernameEditorDialog(state: GameUiState, model: GameViewModel) {
     ) {
         Surface(
             Modifier.fillMaxWidth().widthIn(max = 430.dp),
-            shape = RoundedCornerShape(22.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = .97f),
             tonalElevation = 8.dp,
         ) {
@@ -159,23 +131,154 @@ private fun UsernameEditorDialog(state: GameUiState, model: GameViewModel) {
 private fun RustGameSurface(model: GameViewModel) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            SurfaceView(context).apply {
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
-                    }
-                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                        if (width > 0 && height > 0) {
-                            model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
-                            model.resizeRenderer(width.toFloat(), height.toFloat())
-                        }
-                    }
-                    override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer()
-                })
-            }
-        },
+        factory = { context -> InteractiveGameSurface(context, model) },
     )
+}
+
+private class InteractiveGameSurface(
+    context: Context,
+    private val model: GameViewModel,
+) : SurfaceView(context), SurfaceHolder.Callback {
+    private val density = resources.displayMetrics.density.coerceAtLeast(.1f)
+    private var safeInsets = Insets.NONE
+    private val uiPointers = mutableSetOf<Int>()
+    private val cameraTouches = linkedMapOf<Int, PointF>()
+    private var previousPinchDistance: Float? = null
+    private var cameraTouchMoved = false
+
+    init {
+        isFocusable = true
+        isClickable = true
+        holder.addCallback(this)
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            safeInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            updateUiViewport()
+            insets
+        }
+        ViewCompat.requestApplyInsets(this)
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
+        updateUiViewport()
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        if (width > 0 && height > 0) {
+            model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
+            model.resizeRenderer(width.toFloat(), height.toFloat())
+            updateUiViewport()
+        }
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer()
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updateUiViewport()
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val index = event.actionIndex
+                beginPointer(event.getPointerId(index), event.getX(index), event.getY(index))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                for (index in 0 until event.pointerCount) {
+                    movePointer(event.getPointerId(index), event.getX(index), event.getY(index))
+                }
+                updatePinchDistance()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val index = event.actionIndex
+                finishPointer(event.getPointerId(index), event.getX(index), event.getY(index), 2, true)
+                updatePinchDistance()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                val ids = (uiPointers + cameraTouches.keys).toList()
+                ids.forEach { pointerId ->
+                    val point = cameraTouches[pointerId]
+                    finishPointer(pointerId, (point?.x ?: 0f) * density, (point?.y ?: 0f) * density, 3, false)
+                }
+                updatePinchDistance()
+            }
+        }
+        return true
+    }
+
+    private fun beginPointer(pointerId: Int, rawX: Float, rawY: Float) {
+        val id = pointerId.toLong() + 1L
+        val x = rawX / density
+        val y = rawY / density
+        if (model.uiPointer(id, 0, x, y)) {
+            uiPointers += pointerId
+        } else {
+            cameraTouches[pointerId] = PointF(x, y)
+        }
+        updatePinchDistance()
+    }
+
+    private fun movePointer(pointerId: Int, rawX: Float, rawY: Float) {
+        val id = pointerId.toLong() + 1L
+        val x = rawX / density
+        val y = rawY / density
+        if (pointerId in uiPointers) {
+            model.uiPointer(id, 1, x, y)
+        } else if (cameraTouches[pointerId] != null) {
+            val previous = cameraTouches[pointerId]!!
+            if (cameraTouches.size == 1) {
+                model.lookBy(x - previous.x, y - previous.y)
+                cameraTouchMoved = true
+            }
+            cameraTouches[pointerId] = PointF(x, y)
+        }
+    }
+
+    private fun finishPointer(pointerId: Int, rawX: Float, rawY: Float, phase: Int, allowWorldTap: Boolean) {
+        val id = pointerId.toLong() + 1L
+        val x = rawX / density
+        val y = rawY / density
+        val wasCameraInteraction = cameraTouches.isNotEmpty()
+        if (uiPointers.remove(pointerId)) {
+            model.uiPointer(id, phase, x, y)
+        } else {
+            cameraTouches.remove(pointerId)
+        }
+        if (cameraTouches.isEmpty()) {
+            if (allowWorldTap && wasCameraInteraction && !cameraTouchMoved) model.requestUsernameEdit()
+            cameraTouchMoved = false
+        }
+    }
+
+    private fun updatePinchDistance() {
+        if (cameraTouches.size < 2) {
+            previousPinchDistance = null
+            return
+        }
+        val points = cameraTouches.values.take(2)
+        val dx = points[0].x - points[1].x
+        val dy = points[0].y - points[1].y
+        val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+        previousPinchDistance?.let { previous ->
+            model.zoomBy((1f + (distance - previous) / 100f).coerceAtLeast(.1f))
+            cameraTouchMoved = true
+        }
+        previousPinchDistance = distance
+    }
+
+    private fun updateUiViewport() {
+        if (width <= 0 || height <= 0) return
+        model.setUiViewport(
+            width = width / density,
+            height = height / density,
+            scale = density,
+            safeTop = safeInsets.top / density,
+            safeRight = safeInsets.right / density,
+            safeBottom = safeInsets.bottom / density,
+            safeLeft = safeInsets.left / density,
+        )
+    }
 }
 
 @Composable
@@ -194,146 +297,10 @@ private fun GameAtmosphere(isSession: Boolean) {
 }
 
 @Composable
-private fun BuildToolbar(state: GameUiState, model: GameViewModel) {
-    Surface(
-        Modifier.fillMaxWidth().widthIn(max = 520.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .92f),
-        tonalElevation = 5.dp,
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (state.buildPhase == "tour") "TOUR MODE" else "BUILD TOGETHER", color = MaterialTheme.colorScheme.onSurface.copy(.62f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            Text(if (state.buildPhase == "tour") "Walk through what you made together." else state.buildPrompt.ifBlank { "Build together." }, color = MaterialTheme.colorScheme.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-            if (state.buildPhase == "build") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("place", "rotate", "remove", "recolor").forEach { tool ->
-                        BuildToolButton(tool.uppercase(), state.buildTool == tool) { model.setBuildTool(tool) }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    BuildToolButton("SHAPE · ${state.buildShape.uppercase()}") { model.cycleBuildShape() }
-                    BuildToolButton("COLOR · ${state.buildColor.uppercase()}") { model.cycleBuildColor() }
-                    Spacer(Modifier.weight(1f))
-                    BuildToolButton("USE TOOL", true) { model.performBuildAction() }
-                }
-                Text("Face the build area, then tap USE TOOL.", color = MaterialTheme.colorScheme.onSurface.copy(.58f), fontSize = 10.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${state.buildBlocks.size} blocks", color = MaterialTheme.colorScheme.onSurface.copy(.58f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                if (state.buildPhase == "build") BuildToolButton("SAVE & TOUR", true) { model.saveBuild() }
-                else BuildToolButton("RETURN TO LOBBY") { model.returnToLobby() }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BuildToolButton(label: String, active: Boolean = false, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.height(38.dp),
-        shape = RoundedCornerShape(19.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .08f),
-            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-        ),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
-    ) { Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp) }
-}
-
-@Composable
-private fun GameHeader(state: GameUiState, model: GameViewModel) {
-    val world = state.packageData?.worldDefinition(state.worldId)
-    val frame = state.frame
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.Black.copy(alpha = .32f),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Text(world?.scene?.eyebrow?.uppercase() ?: "CUBACADABRA", color = Color.White.copy(.64f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                    Text(world?.scene?.title ?: "First Game", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-                    Text(world?.scene?.description.orEmpty(), color = Color.White.copy(.72f), fontSize = 14.sp, maxLines = 2)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(if (state.worldId == "lobby") "LOBBY" else "SESSION", color = Color.White.copy(.64f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                    Text("${(frame?.remotePlayers ?: 0) + 1} PLAYERS", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(connectionColor(state.connectionState)))
-                        Text(state.connectionState.label, color = Color.White.copy(.68f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .9.sp)
-                    }
-                }
-            }
-            if (state.worldId == "lobby") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    world?.launchPads?.forEachIndexed { index, pad ->
-                        val live = frame?.pads?.getOrNull(index)
-                        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(if (pad.enabled) .09f else .045f)).padding(10.dp).alpha(if (pad.enabled) 1f else .72f)) {
-                            Text(pad.code, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
-                            Text(model.lobbyLaunchStatus(pad, live), color = Color.White.copy(if (pad.enabled) .78f else .48f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun PresenceNotice(message: String) {
-    Surface(Modifier.fillMaxWidth().padding(top = 10.dp), color = Color.White.copy(.90f), shape = RoundedCornerShape(22.dp)) {
+    Surface(Modifier.fillMaxWidth().padding(top = 10.dp), color = Color.White.copy(.90f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
         Text(message, Modifier.padding(horizontal = 14.dp, vertical = 12.dp), color = Color(0xFF173F43), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
     }
-}
-
-@Composable
-private fun GameControls(model: GameViewModel, sprinting: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.Bottom) {
-        Joystick(model)
-        Spacer(Modifier.weight(1f))
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GameButton("JUMP") { model.jump() }
-            GameButton(if (sprinting) "RUNNING" else "RUN", active = sprinting) { model.toggleSprinting() }
-        }
-    }
-}
-
-@Composable
-private fun Joystick(model: GameViewModel) {
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    Box(
-        Modifier.size(120.dp).pointerInput(Unit) {
-            detectDragGestures(
-                onDrag = { change, drag ->
-                    change.consume()
-                    offset += drag
-                    val limit = 38f
-                    val x = offset.x.coerceIn(-limit, limit)
-                    val y = offset.y.coerceIn(-limit, limit)
-                    model.setMove(x / limit, -y / limit)
-                },
-                onDragEnd = { offset = Offset.Zero; model.setMove(0f, 0f) },
-                onDragCancel = { offset = Offset.Zero; model.setMove(0f, 0f) },
-            )
-        }, contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.size(108.dp).clip(CircleShape).background(Color.Black.copy(.30f)))
-        Box(Modifier.size(48.dp).offset { IntOffset(offset.x.toInt(), offset.y.toInt()) }.clip(CircleShape).background(Color.White.copy(.84f)))
-    }
-}
-
-@Composable
-private fun GameButton(label: String, active: Boolean = false, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.height(44.dp),
-        shape = RoundedCornerShape(22.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(if (active) .42f else .20f), contentColor = Color.White),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp),
-    ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp) }
 }
 
 @Composable
@@ -353,19 +320,10 @@ private fun ErrorScreen(message: String?, retry: () -> Unit) {
             Text("GAME UNAVAILABLE", color = Color.White.copy(.62f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             Text("Couldn’t load the first game.", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Text(message.orEmpty(), color = Color.White.copy(.72f), fontSize = 15.sp)
-            GameButton("TRY AGAIN", onClick = retry)
+            Button(
+                onClick = retry,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(.20f), contentColor = Color.White),
+            ) { Text("TRY AGAIN", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp) }
         }
     }
-}
-
-private fun connectionColor(state: WorldConnectionState) = when (state) {
-    WorldConnectionState.CONNECTED -> Color(0xFF8FE0A8)
-    WorldConnectionState.CONNECTING, WorldConnectionState.RECONNECTING -> Color(0xFFF2C764)
-    WorldConnectionState.DISCONNECTED -> Color(0xFFE98268)
-}
-
-private fun padStatus(pad: EnginePad?) = when {
-    pad == null -> "READY"
-    pad.seconds > 0f -> "${pad.occupants} · ${pad.seconds.toInt()}s"
-    else -> "${pad.occupants} READY"
 }

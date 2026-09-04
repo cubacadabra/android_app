@@ -11,7 +11,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.nio.charset.StandardCharsets
 import kotlin.math.min
+
+private data class EngineUiEvent(
+    val nodeId: String,
+    val action: String,
+    val phase: String,
+    val value: Float?,
+    val x: Float?,
+    val y: Float?,
+)
+
+private data class UiViewport(
+    val width: Float,
+    val height: Float,
+    val scale: Float,
+    val safeTop: Float,
+    val safeRight: Float,
+    val safeBottom: Float,
+    val safeLeft: Float,
+)
 
 data class Vec3(val x: Float, val y: Float, val z: Float)
 data class EnginePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
@@ -64,6 +84,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lookX = 0f
     private var lookY = 0f
     private var zoomDelta = 0f
+    private var uiViewport: UiViewport? = null
     private var connectedWorldId: String? = null
     private var pendingSessionWorldId: String? = null
     private val remotes = sortedMapOf<String, RemotePlayer>()
@@ -111,6 +132,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     throw error
                 }
                 engine = created
+                uiViewport?.let { viewport ->
+                    NativeEngine.nativeSetUiViewport(
+                        created,
+                        viewport.width,
+                        viewport.height,
+                        viewport.scale,
+                        viewport.safeTop,
+                        viewport.safeRight,
+                        viewport.safeBottom,
+                        viewport.safeLeft,
+                    )
+                }
                 val worldId = loaded.packageData.startWorld
                 NativeEngine.nativeSetUsername(created, socket.username.toByteArray())
                 socket.setHidden(worldId == "settings")
@@ -155,6 +188,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (settingsOpen) 0f else lookX, if (settingsOpen) 0f else lookY, if (settingsOpen) 0f else zoomDelta)
         jumpQueued = false; lookX = 0f; lookY = 0f; zoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
+        handleUiEvents(currentEngine)
         val nextFrame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()
         updateSettingsRoomState(NativeEngine.nativeSettingsRoomState(currentEngine))
         val packageData = _state.value.packageData
@@ -187,6 +221,67 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun zoomBy(scale: Float) {
         if (!_state.value.usernameEditorOpen) zoomDelta -= (scale - 1f) * 8f
+    }
+
+    fun setUiViewport(
+        width: Float,
+        height: Float,
+        scale: Float,
+        safeTop: Float,
+        safeRight: Float,
+        safeBottom: Float,
+        safeLeft: Float,
+    ) {
+        val viewport = UiViewport(width, height, scale, safeTop, safeRight, safeBottom, safeLeft)
+        uiViewport = viewport
+        if (engine != 0L) {
+            NativeEngine.nativeSetUiViewport(
+                engine,
+                viewport.width,
+                viewport.height,
+                viewport.scale,
+                viewport.safeTop,
+                viewport.safeRight,
+                viewport.safeBottom,
+                viewport.safeLeft,
+            )
+        }
+    }
+
+    fun uiPointer(pointerId: Long, phase: Int, x: Float, y: Float): Boolean =
+        engine != 0L && NativeEngine.nativeUiPointer(engine, pointerId, phase, x, y)
+
+    private fun handleUiEvents(currentEngine: Long) {
+        while (NativeEngine.nativePollUiEvent(currentEngine)) {
+            val event = runCatching {
+                JSONObject(String(NativeEngine.nativeUiEvent(currentEngine), StandardCharsets.UTF_8))
+            }.getOrNull() ?: continue
+            val uiEvent = EngineUiEvent(
+                nodeId = event.optString("nodeId"),
+                action = event.optString("action"),
+                phase = event.optString("phase"),
+                value = event.optDouble("value").takeIf { event.has("value") && !event.isNull("value") }?.toFloat(),
+                x = event.optDouble("x").takeIf { event.has("x") && !event.isNull("x") }?.toFloat(),
+                y = event.optDouble("y").takeIf { event.has("y") && !event.isNull("y") }?.toFloat(),
+            )
+            when (uiEvent.action) {
+                "player.move" -> setMove(strafe = uiEvent.x ?: 0f, forward = -(uiEvent.y ?: 0f))
+                "player.jump" -> if (uiEvent.phase == "activate") jump()
+                "player.run" -> if (uiEvent.phase == "activate") toggleSprinting()
+                "build.tool" -> if (uiEvent.phase == "activate") {
+                    val tools = listOf("place", "rotate", "remove", "recolor")
+                    update { copy(buildTool = tools[(tools.indexOf(buildTool).coerceAtLeast(0) + 1) % tools.size]) }
+                }
+                "build.shape" -> if (uiEvent.phase == "activate") cycleBuildShape()
+                "build.color" -> if (uiEvent.phase == "activate") cycleBuildColor()
+                "build.use" -> if (uiEvent.phase == "activate") performBuildAction()
+                "build.save" -> if (uiEvent.phase == "activate") saveBuild()
+                "build.return" -> if (uiEvent.phase == "activate") returnToLobby()
+                "build.place", "build.rotate", "build.remove", "build.recolor" ->
+                    update { copy(buildTool = uiEvent.action.removePrefix("build.")) }
+                else -> Unit
+            }
+        }
     }
     fun requestUsernameEdit() {
         if (_state.value.settingsRoomState != 2 || _state.value.usernameEditorOpen) return
