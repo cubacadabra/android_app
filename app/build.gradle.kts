@@ -19,7 +19,7 @@ fun configuredValue(name: String): String? =
 val configuredGameBaseUrl = configuredValue("CUBACADABRA_GAME_BASE_URL")
 val configuredBackendUrl = configuredValue("CUBACADABRA_BACKEND_URL")
 val releaseGameBaseUrl = configuredGameBaseUrl ?: "https://cubacadabra.com/games/first-game/"
-val releaseBackendUrl = configuredBackendUrl ?: "wss://cubacadabra.andrew-f97.workers.dev"
+val releaseBackendUrl = configuredBackendUrl ?: "wss://api.cubacadabra.com"
 val releaseUsesCleartext = releaseGameBaseUrl.startsWith("http://") || releaseBackendUrl.startsWith("ws://")
 
 abstract class BuildRustTask : Exec() {
