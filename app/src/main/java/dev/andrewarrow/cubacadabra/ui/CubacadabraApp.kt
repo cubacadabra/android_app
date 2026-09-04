@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,14 +79,18 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         RustGameSurface(model)
         if (state.worldId != "settings") GameAtmosphere(state.worldId != "lobby")
-        Column(
+        Box(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 20.dp, vertical = 10.dp),
         ) {
             if (state.worldId != "settings") {
-                state.presenceNotice?.let { notice -> PresenceNotice(notice.message) }
+                state.presenceNotice?.let { notice ->
+                    PresenceNotice(
+                        message = notice.message,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
+                    )
+                }
             }
-            Spacer(Modifier.weight(1f))
         }
         if (state.usernameEditorOpen) UsernameEditorDialog(state, model)
     }
@@ -298,9 +301,22 @@ private fun GameAtmosphere(isSession: Boolean) {
 }
 
 @Composable
-private fun PresenceNotice(message: String) {
-    Surface(Modifier.fillMaxWidth().padding(top = 10.dp), color = Color.White.copy(.90f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
-        Text(message, Modifier.padding(horizontal = 14.dp, vertical = 12.dp), color = Color(0xFF173F43), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+private fun PresenceNotice(message: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier.fillMaxWidth().widthIn(max = 390.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = .94f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+        tonalElevation = 4.dp,
+    ) {
+        Text(
+            message,
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+        )
     }
 }
 
