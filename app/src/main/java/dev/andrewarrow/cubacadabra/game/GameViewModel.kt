@@ -1,6 +1,7 @@
 package dev.andrewarrow.cubacadabra.game
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.andrewarrow.cubacadabra.nativebridge.NativeEngine
@@ -70,6 +71,10 @@ data class GameUiState(
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
+    private companion object {
+        const val TAG = "GameViewModel"
+    }
+
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
@@ -249,14 +254,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun uiPointer(pointerId: Long, phase: Int, x: Float, y: Float): Boolean =
-        engine != 0L && NativeEngine.nativeUiPointer(engine, pointerId, phase, x, y)
+    fun uiPointer(pointerId: Long, phase: Int, x: Float, y: Float): Boolean {
+        val handled = engine != 0L && NativeEngine.nativeUiPointer(engine, pointerId, phase, x, y)
+        if (phase != 1) {
+            Log.d(TAG, "uiPointer id=$pointerId phase=$phase x=$x y=$y handled=$handled engine=$engine")
+        }
+        return handled
+    }
 
     private fun handleUiEvents(currentEngine: Long) {
         while (NativeEngine.nativePollUiEvent(currentEngine)) {
-            val event = runCatching {
-                JSONObject(String(NativeEngine.nativeUiEvent(currentEngine), StandardCharsets.UTF_8))
-            }.getOrNull() ?: continue
+            val rawEvent = String(NativeEngine.nativeUiEvent(currentEngine), StandardCharsets.UTF_8)
+            val event = runCatching { JSONObject(rawEvent) }.getOrNull()
+            if (event == null) {
+                Log.e(TAG, "failed to decode native UI event raw=$rawEvent")
+                continue
+            }
+            val action = event.optString("action")
+            if (action.startsWith("build.")) {
+                Log.d(TAG, "native UI event node=${event.optString("nodeId")} action=$action phase=${event.optString("phase")}")
+            }
             val uiEvent = EngineUiEvent(
                 nodeId = event.optString("nodeId"),
                 action = event.optString("action"),
@@ -271,7 +288,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 "player.run" -> if (uiEvent.phase == "activate") toggleSprinting()
                 "build.tool" -> if (uiEvent.phase == "activate") {
                     val tools = listOf("place", "rotate", "remove", "recolor")
-                    update { copy(buildTool = tools[(tools.indexOf(buildTool).coerceAtLeast(0) + 1) % tools.size]) }
+                    val nextTool = tools[(tools.indexOf(_state.value.buildTool).coerceAtLeast(0) + 1) % tools.size]
+                    Log.d(TAG, "cycling build tool ${_state.value.buildTool} -> $nextTool")
+                    update { copy(buildTool = nextTool) }
                 }
                 "build.shape" -> if (uiEvent.phase == "activate") cycleBuildShape()
                 "build.color" -> if (uiEvent.phase == "activate") cycleBuildColor()
@@ -279,14 +298,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 "build.save" -> if (uiEvent.phase == "activate") saveBuild()
                 "build.return" -> if (uiEvent.phase == "activate") returnToLobby()
                 "build.place", "build.rotate", "build.remove", "build.recolor" -> if (uiEvent.phase == "activate") {
-                    update { copy(buildTool = uiEvent.action.removePrefix("build.")) }
+                    val tool = uiEvent.action.removePrefix("build.")
+                    Log.d(TAG, "build tool button activated tool=$tool")
+                    update { copy(buildTool = tool) }
                     performBuildAction()
                 }
                 else -> when {
-                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.shape.") ->
-                        update { copy(buildShape = uiEvent.action.removePrefix("build.shape.")) }
-                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.color.") ->
-                        update { copy(buildColor = uiEvent.action.removePrefix("build.color.")) }
+                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.shape.") -> {
+                        val shape = uiEvent.action.removePrefix("build.shape.")
+                        Log.d(TAG, "shape selected ${_state.value.buildShape} -> $shape")
+                        update { copy(buildShape = shape) }
+                    }
+                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.color.") -> {
+                        val color = uiEvent.action.removePrefix("build.color.")
+                        Log.d(TAG, "color selected ${_state.value.buildColor} -> $color")
+                        update { copy(buildColor = color) }
+                    }
                 }
             }
         }
@@ -322,6 +349,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun world(): WorldDefinition? = _state.value.packageData?.worldDefinition(_state.value.worldId)
 
     private fun handleExperience(event: ExperienceEvent) {
+        Log.d(TAG, "experience event type=${event.type} kind=${event.kind} phase=${event.phase} blocks=${event.blocks.size}")
         if (event.type == "experience_launch" && event.playerIds.contains(socket.playerId)) {
             val session = event.sessionWorldId ?: return
             val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("real-game") ?: -1
@@ -358,7 +386,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cycleBuildShape() {
         val shapes = listOf("cube", "beam", "slab")
-        update { copy(buildShape = shapes[(shapes.indexOf(buildShape).coerceAtLeast(0) + 1) % shapes.size]) }
+        val nextShape = shapes[(shapes.indexOf(_state.value.buildShape).coerceAtLeast(0) + 1) % shapes.size]
+        Log.d(TAG, "cycling build shape ${_state.value.buildShape} -> $nextShape")
+        update { copy(buildShape = nextShape) }
     }
 
     fun setBuildTool(tool: String) {
@@ -367,13 +397,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cycleBuildColor() {
         val colors = listOf("coral", "butter", "periwinkle", "ink", "paper")
-        update { copy(buildColor = colors[(colors.indexOf(buildColor).coerceAtLeast(0) + 1) % colors.size]) }
+        val nextColor = colors[(colors.indexOf(_state.value.buildColor).coerceAtLeast(0) + 1) % colors.size]
+        Log.d(TAG, "cycling build color ${_state.value.buildColor} -> $nextColor")
+        update { copy(buildColor = nextColor) }
     }
 
     fun performBuildAction() {
         val current = _state.value
-        val frame = current.frame ?: return
-        if (current.worldId != "real-game") return
+        Log.d(TAG, "performBuildAction world=${current.worldId} phase=${current.buildPhase} tool=${current.buildTool} shape=${current.buildShape} color=${current.buildColor} blocks=${current.buildBlocks.size} hasFrame=${current.frame != null}")
+        val frame = current.frame ?: run {
+            Log.w(TAG, "build action ignored: no engine frame")
+            return
+        }
+        if (current.worldId != "real-game") {
+            Log.w(TAG, "build action ignored: world=${current.worldId}")
+            return
+        }
         val sizeY = when (current.buildShape) { "slab" -> .5f; else -> 1f }
         val target = JSONObject().apply {
             put("x", kotlin.math.round((frame.player.position.x + kotlin.math.sin(frame.cameraYaw) * 4) * 2) / 2)
@@ -383,15 +422,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             put("color", current.buildColor)
         }
         if (current.buildTool == "place") {
+            Log.d(TAG, "sending place block=$target")
             socket.sendExperience("build_action", JSONObject().apply { put("action", "place"); put("block", target) })
             return
         }
         val nearest = current.buildBlocks.minByOrNull { block ->
             val dx = block.x - target.optDouble("x").toFloat(); val dy = block.y - target.optDouble("y").toFloat(); val dz = block.z - target.optDouble("z").toFloat()
             dx * dx + dy * dy + dz * dz
-        } ?: return
+        } ?: run {
+            Log.w(TAG, "build action ignored: no blocks available for tool=${current.buildTool}")
+            return
+        }
         val dx = nearest.x - target.optDouble("x").toFloat(); val dy = nearest.y - target.optDouble("y").toFloat(); val dz = nearest.z - target.optDouble("z").toFloat()
-        if (dx * dx + dy * dy + dz * dz >= 4.41f) return
+        if (dx * dx + dy * dy + dz * dz >= 4.41f) {
+            Log.w(TAG, "build action ignored: nearest block=${nearest.id} is too far from target=$target")
+            return
+        }
+        Log.d(TAG, "sending build action tool=${current.buildTool} block=${nearest.id}")
         socket.sendExperience("build_action", JSONObject().apply {
             put("action", current.buildTool); put("id", nearest.id)
             if (current.buildTool == "recolor") put("color", current.buildColor)

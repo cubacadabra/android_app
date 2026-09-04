@@ -1,6 +1,7 @@
 package dev.andrewarrow.cubacadabra.game
 
 import android.content.Context
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -42,6 +43,7 @@ data class ExperienceEvent(
 
 class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     companion object {
+        private const val TAG = "WorldSocketClient"
         private const val SEND_INTERVAL_MS = 83L
         private const val EPSILON = 0.01f
     }
@@ -74,6 +76,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     fun connect(nextWorldId: String) {
         val normalized = nextWorldId.trim()
         if (normalized.isEmpty() || (!stopped && normalized == worldId && socket != null)) return
+        Log.d(TAG, "connect world=$normalized")
         closeSocket()
         worldId = normalized
         stopped = false
@@ -118,6 +121,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
             if (webSocket != socket || stopped) return
+            Log.d(TAG, "socket open world=$worldId")
             reconnectAttempt = 0
             notifyState(WorldConnectionState.CONNECTED)
             sendUsername(pendingUsername, webSocket)
@@ -131,12 +135,14 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
             if (webSocket != socket || stopped) return
+            Log.w(TAG, "socket failure world=$worldId message=${t.message}", t)
             socket = null
             scheduleReconnect()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             if (webSocket != socket || stopped) return
+            Log.d(TAG, "socket closed world=$worldId code=$code reason=$reason")
             socket = null
             scheduleReconnect()
         }
@@ -231,9 +237,13 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     }
 
     fun sendExperience(type: String, payload: JSONObject = JSONObject()) {
-        val current = socket ?: return
+        val current = socket ?: run {
+            Log.w(TAG, "experience send dropped: no socket type=$type world=$worldId stopped=$stopped")
+            return
+        }
         val message = JSONObject(payload.toString()).apply { put("type", type) }
-        current.send(message.toString())
+        val sent = current.send(message.toString())
+        Log.d(TAG, "experience send type=$type world=$worldId sent=$sent payload=$message")
     }
 
     private fun sendVisibility(webSocket: WebSocket) {

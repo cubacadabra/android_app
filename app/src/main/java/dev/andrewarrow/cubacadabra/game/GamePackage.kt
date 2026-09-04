@@ -1,6 +1,7 @@
 package dev.andrewarrow.cubacadabra.game
 
 import android.content.Context
+import android.util.Log
 import dev.andrewarrow.cubacadabra.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -69,6 +70,10 @@ object ClientConfiguration {
 }
 
 class GamePackageLoader(context: Context) {
+    private companion object {
+        const val TAG = "GamePackageLoader"
+    }
+
     private val applicationContext = context.applicationContext
     private val preferences = context.getSharedPreferences("game-package", Context.MODE_PRIVATE)
     private val maximumManifestBytes = 512 * 1024
@@ -76,7 +81,9 @@ class GamePackageLoader(context: Context) {
 
     suspend fun load(): LoadedGamePackage = withContext(Dispatchers.IO) {
         val bundled = loadBundledPackage()
-        cachedPackage() ?: bundled
+        val cached = cachedPackage()
+        Log.d(TAG, "package load bundledScriptBytes=${bundled.script.toByteArray().size} cached=${cached != null} selected=${if (cached != null) "cached" else "bundled"}")
+        cached ?: bundled
     }
 
     suspend fun refreshPackage() = withContext(Dispatchers.IO) {
@@ -90,6 +97,10 @@ class GamePackageLoader(context: Context) {
                 .putString("manifest", downloadedPackage.manifest)
                 .putString("script", downloadedPackage.script)
                 .apply()
+        }.onSuccess {
+            Log.d(TAG, "package refresh succeeded")
+        }.onFailure {
+            Log.w(TAG, "package refresh failed: ${it.message}")
         }
     }
 
