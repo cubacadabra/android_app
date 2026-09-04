@@ -72,6 +72,11 @@ object ClientConfiguration {
 class GamePackageLoader(context: Context) {
     private companion object {
         const val TAG = "GamePackageLoader"
+        // The generated Luau package format changed with the Build Together
+        // UI. Keep the old cache from overriding the corrected bundle after
+        // an app update, matching the iOS loader's versioned cache keys.
+        const val CACHED_MANIFEST_KEY = "manifest.v2"
+        const val CACHED_SCRIPT_KEY = "script.v2"
     }
 
     private val applicationContext = context.applicationContext
@@ -94,8 +99,8 @@ class GamePackageLoader(context: Context) {
                 fetch(URL(base + "game.luau"), maximumScriptBytes),
             )
             preferences.edit()
-                .putString("manifest", downloadedPackage.manifest)
-                .putString("script", downloadedPackage.script)
+                .putString(CACHED_MANIFEST_KEY, downloadedPackage.manifest)
+                .putString(CACHED_SCRIPT_KEY, downloadedPackage.script)
                 .apply()
         }.onSuccess {
             Log.d(TAG, "package refresh succeeded")
@@ -105,8 +110,8 @@ class GamePackageLoader(context: Context) {
     }
 
     private fun cachedPackage(): LoadedGamePackage? {
-        val manifest = preferences.getString("manifest", null) ?: return null
-        val script = preferences.getString("script", null) ?: return null
+        val manifest = preferences.getString(CACHED_MANIFEST_KEY, null) ?: return null
+        val script = preferences.getString(CACHED_SCRIPT_KEY, null) ?: return null
         return runCatching {
             makePackage(manifest.toByteArray(Charsets.UTF_8), script.toByteArray(Charsets.UTF_8))
         }.getOrNull()
