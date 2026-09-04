@@ -10,6 +10,8 @@ plugins {
 
 val rustRoot = rootProject.file("../rust")
 val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
+val firstGameRoot = rootProject.file("../first-game")
+val gameBuildScript = firstGameRoot.resolve("scripts/build_game.sh")
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { stream -> load(stream) }
 }
@@ -25,6 +27,18 @@ val releaseUsesCleartext = releaseGameBaseUrl.startsWith("http://") || releaseBa
 abstract class BuildRustTask : Exec() {
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
+}
+
+abstract class BuildGamePackageTask : Exec() {
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+}
+
+val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") {
+    outputDirectory.set(layout.buildDirectory.dir("generated/game-assets"))
+    inputs.files(fileTree(firstGameRoot) { exclude("build/**") })
+    commandLine("sh", gameBuildScript.absolutePath,
+        "--output", outputDirectory.get().asFile.resolve("game-package").absolutePath)
 }
 
 val buildRust = tasks.register<BuildRustTask>("buildRust") {
@@ -99,11 +113,15 @@ androidComponents {
             buildRust,
             BuildRustTask::outputDirectory,
         )
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            buildGamePackage,
+            BuildGamePackageTask::outputDirectory,
+        )
     }
 }
 
 tasks.named("preBuild") {
-    dependsOn(buildRust)
+    dependsOn(buildRust, buildGamePackage)
 }
 
 tasks.configureEach {

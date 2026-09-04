@@ -1,10 +1,13 @@
 package dev.andrewarrow.cubacadabra.game
 
+import android.content.Context
 import dev.andrewarrow.cubacadabra.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -65,21 +68,63 @@ object ClientConfiguration {
     val backendUrl: String get() = BuildConfig.CUBACADABRA_BACKEND_URL
 }
 
-class GamePackageLoader {
+class GamePackageLoader(context: Context) {
+    private val applicationContext = context.applicationContext
+    private val preferences = context.getSharedPreferences("game-package", Context.MODE_PRIVATE)
+    private val maximumManifestBytes = 512 * 1024
+    private val maximumScriptBytes = 512 * 1024
+
     suspend fun load(): LoadedGamePackage = withContext(Dispatchers.IO) {
-        val base = ClientConfiguration.gameBaseUrl.trimEnd('/') + "/"
-        val manifestBytes = fetch(URL(base + "manifest.json"))
-        val scriptBytes = fetch(URL(base + "game.luau"))
-        val manifest = manifestBytes.toString(Charsets.UTF_8)
-        val script = scriptBytes.toString(Charsets.UTF_8)
+        val bundled = loadBundledPackage()
+        cachedPackage() ?: bundled
+    }
+
+    suspend fun refreshPackage() = withContext(Dispatchers.IO) {
+        runCatching {
+            val base = ClientConfiguration.gameBaseUrl.trimEnd('/') + "/"
+            val package = makePackage(
+                fetch(URL(base + "manifest.json"), maximumManifestBytes),
+                fetch(URL(base + "game.luau"), maximumScriptBytes),
+            )
+            preferences.edit()
+                .putString("manifest", package.manifest)
+                .putString("script", package.script)
+                .apply()
+        }
+    }
+
+    private fun cachedPackage(): LoadedGamePackage? {
+        val manifest = preferences.getString("manifest", null) ?: return null
+        val script = preferences.getString("script", null) ?: return null
+        return runCatching {
+            makePackage(manifest.toByteArray(Charsets.UTF_8), script.toByteArray(Charsets.UTF_8))
+        }.getOrNull()
+    }
+
+    private fun loadBundledPackage(): LoadedGamePackage {
+        val manifestBytes = applicationContext.assets.open("game-package/manifest.json").use { it.readBytes() }
+        val scriptBytes = applicationContext.assets.open("game-package/game.luau").use { it.readBytes() }
+        return makePackage(manifestBytes, scriptBytes)
+    }
+
+    private fun makePackage(manifestBytes: ByteArray, scriptBytes: ByteArray): LoadedGamePackage {
+        val manifest = decodeUtf8(manifestBytes)
+        val script = decodeUtf8(scriptBytes)
+        if (script.isEmpty()) throw GamePackageException("The Luau game script is empty.")
         val packageData = parsePackage(JSONObject(manifest))
         if (packageData.worldDefinition(packageData.startWorld) == null) {
             throw GamePackageException("The game world \"${packageData.startWorld}\" was not found.")
         }
-        LoadedGamePackage(packageData, manifest, script)
+        return LoadedGamePackage(packageData, manifest, script)
     }
 
-    private fun fetch(url: URL): ByteArray {
+    private fun decodeUtf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString()
+
+    private fun fetch(url: URL, maximumBytes: Int): ByteArray {
         val connection = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000
             readTimeout = 20_000
@@ -88,7 +133,11 @@ class GamePackageLoader {
         connection.connect()
         try {
             if (connection.responseCode !in 200..299) throw GamePackageException("The game package server returned HTTP ${connection.responseCode}.")
-            return connection.inputStream.use { stream -> stream.readBytes() }
+            return connection.inputStream.use { stream ->
+                val bytes = stream.readBytes()
+                if (bytes.size > maximumBytes) throw GamePackageException("The game package file is too large.")
+                bytes
+            }
         } finally {
             connection.disconnect()
         }

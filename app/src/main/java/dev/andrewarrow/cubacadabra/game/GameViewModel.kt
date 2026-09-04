@@ -73,7 +73,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
-    private val loader = GamePackageLoader()
+    private val loader = GamePackageLoader(application)
     private val socket = WorldSocketClient(application, viewModelScope)
     private var engine: Long = 0
     private var renderer: Long = 0
@@ -153,6 +153,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         frame = NativeEngine.nativeReadFrame(created).decodeFrame())
                 }
                 connectWorld(worldId)
+                viewModelScope.launch { loader.refreshPackage() }
             }.onFailure { error ->
                 if (engine == 0L) update { copy(isLoading = false, errorMessage = error.message ?: "Unknown error") }
             }

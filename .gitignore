@@ -3,4 +3,5 @@ app/.cxx/
 .idea
 build/
 app/build/
+app/src/main/assets/game-package/
 local.properties
