@@ -82,13 +82,13 @@ class GamePackageLoader(context: Context) {
     suspend fun refreshPackage() = withContext(Dispatchers.IO) {
         runCatching {
             val base = ClientConfiguration.gameBaseUrl.trimEnd('/') + "/"
-            val package = makePackage(
+            val downloadedPackage = makePackage(
                 fetch(URL(base + "manifest.json"), maximumManifestBytes),
                 fetch(URL(base + "game.luau"), maximumScriptBytes),
             )
             preferences.edit()
-                .putString("manifest", package.manifest)
-                .putString("script", package.script)
+                .putString("manifest", downloadedPackage.manifest)
+                .putString("script", downloadedPackage.script)
                 .apply()
         }
     }

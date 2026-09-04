@@ -366,7 +366,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun performBuildAction() {
         val current = _state.value
         val frame = current.frame ?: return
-        if (current.worldId != "real-game" || current.buildPhase != "build") return
+        if (current.worldId != "real-game") return
         val sizeY = when (current.buildShape) { "slab" -> .5f; else -> 1f }
         val target = JSONObject().apply {
             put("x", kotlin.math.round((frame.player.position.x + kotlin.math.sin(frame.cameraYaw) * 4) * 2) / 2)
