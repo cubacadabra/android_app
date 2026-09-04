@@ -129,8 +129,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     check(NativeEngine.nativeLoad(created, loaded.manifest.toByteArray(), true)) {
                         "The Rust game engine could not load the game manifest."
                     }
-                    check(NativeEngine.nativeLoad(created, loaded.script.toByteArray(), false)) {
-                        "The Luau game script could not be loaded."
+                    if (!NativeEngine.nativeLoad(created, loaded.script.toByteArray(), false)) {
+                        val details = String(NativeEngine.nativeScriptError(created), StandardCharsets.UTF_8).trim()
+                        throw GamePackageException(
+                            if (details.isEmpty()) "The Luau game script could not be loaded."
+                            else "The Luau game script could not be loaded: $details",
+                        )
                     }
                 } catch (error: Throwable) {
                     NativeEngine.nativeDestroy(created)

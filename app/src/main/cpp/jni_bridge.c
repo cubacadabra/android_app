@@ -12,6 +12,8 @@ extern CubacadabraEngine *engine_create(void);
 extern void engine_destroy(CubacadabraEngine *engine);
 extern uint8_t *engine_script_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_script_buffer(CubacadabraEngine *engine);
+extern const uint8_t *engine_script_error_ptr(const CubacadabraEngine *engine);
+extern uintptr_t engine_script_error_len(const CubacadabraEngine *engine);
 extern uint8_t *engine_package_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_package_buffer(CubacadabraEngine *engine);
 extern uint8_t *engine_username_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
@@ -79,6 +81,16 @@ static jboolean JNICALL nativeLoad(JNIEnv *env, jclass klass, jlong value, jbyte
     memcpy(destination, source, (size_t)length);
     (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
     return package ? engine_load_package_buffer(engine(value)) : engine_load_script_buffer(engine(value));
+}
+
+static jbyteArray JNICALL nativeScriptError(JNIEnv *env, jclass klass, jlong value) {
+    (void)klass;
+    const uintptr_t length = engine_script_error_len(engine(value));
+    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
+    if (!result || length == 0) return result;
+    const uint8_t *source = engine_script_error_ptr(engine(value));
+    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
+    return result;
 }
 
 static void JNICALL nativeSetInput(JNIEnv *env, jclass klass, jlong value, jfloat forward, jfloat strafe,
@@ -254,6 +266,7 @@ static JNINativeMethod methods[] = {
     {"nativeCreate", "()J", (void *)nativeCreate},
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
     {"nativeLoad", "(J[BZ)Z", (void *)nativeLoad},
+    {"nativeScriptError", "(J)[B", (void *)nativeScriptError},
     {"nativeSetInput", "(JFFZZFFF)V", (void *)nativeSetInput},
     {"nativeSetUiViewport", "(JFFFFFFF)V", (void *)nativeSetUiViewport},
     {"nativeUiPointer", "(JJIFF)Z", (void *)nativeUiPointer},

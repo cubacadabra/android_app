@@ -11,6 +11,7 @@ internal object NativeEngine {
     external fun nativeCreate(): Long
     external fun nativeDestroy(engine: Long)
     external fun nativeLoad(engine: Long, bytes: ByteArray, packageManifest: Boolean): Boolean
+    external fun nativeScriptError(engine: Long): ByteArray
     external fun nativeSetInput(
         engine: Long,
         forward: Float,
