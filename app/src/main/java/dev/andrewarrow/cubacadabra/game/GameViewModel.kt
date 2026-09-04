@@ -1,6 +1,8 @@
 package dev.andrewarrow.cubacadabra.game
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -290,6 +292,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 "player.move" -> setMove(strafe = uiEvent.x ?: 0f, forward = -(uiEvent.y ?: 0f))
                 "player.jump" -> if (uiEvent.phase == "activate") jump()
                 "player.run" -> if (uiEvent.phase == "activate") toggleSprinting()
+                "shared.about.open" -> if (uiEvent.phase == "activate") {
+                    runCatching {
+                        getApplication<Application>().startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://cubacadabra.com/about/")).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            },
+                        )
+                    }.onFailure { error ->
+                        Log.e(TAG, "could not open the cubacadabra About page", error)
+                    }
+                }
                 "build.tool" -> if (uiEvent.phase == "activate") {
                     val tools = listOf("place", "rotate", "remove", "recolor")
                     val nextTool = tools[(tools.indexOf(_state.value.buildTool).coerceAtLeast(0) + 1) % tools.size]
