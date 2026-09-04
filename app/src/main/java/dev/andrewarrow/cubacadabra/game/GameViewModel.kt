@@ -86,7 +86,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 remotes[event.playerId] = event.player
             }
-        }
+        } }
         socket.onExperience = ::handleExperience
         load()
     }
