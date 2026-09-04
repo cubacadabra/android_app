@@ -278,9 +278,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 "build.use" -> if (uiEvent.phase == "activate") performBuildAction()
                 "build.save" -> if (uiEvent.phase == "activate") saveBuild()
                 "build.return" -> if (uiEvent.phase == "activate") returnToLobby()
-                "build.place", "build.rotate", "build.remove", "build.recolor" ->
+                "build.place", "build.rotate", "build.remove", "build.recolor" -> if (uiEvent.phase == "activate") {
                     update { copy(buildTool = uiEvent.action.removePrefix("build.")) }
-                else -> Unit
+                    performBuildAction()
+                }
+                else -> when {
+                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.shape.") ->
+                        update { copy(buildShape = uiEvent.action.removePrefix("build.shape.")) }
+                    uiEvent.phase == "activate" && uiEvent.action.startsWith("build.color.") ->
+                        update { copy(buildColor = uiEvent.action.removePrefix("build.color.")) }
+                }
             }
         }
     }
