@@ -248,6 +248,14 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    fun adoptUsername(nextUsername: String) {
+        val normalized = nextUsername.trim()
+        if (normalized.isEmpty()) return
+        username = normalized
+        pendingUsername = normalized
+        preferences.edit().putString("username", normalized).apply()
+    }
+
     private fun sendUsername(value: String, webSocket: WebSocket) {
         if (stopped) return
         webSocket.send(JSONObject().apply {
