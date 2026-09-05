@@ -9,6 +9,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
@@ -30,8 +31,19 @@ class NativeGoogleSignInService(context: Context) {
         val result = try {
             credentialManager.getCredential(
                 context = activity,
-                request = credentialRequest(),
+                request = credentialRequest(filterByAuthorizedAccounts = true),
             )
+        } catch (error: NoCredentialException) {
+            Log.d(TAG, "no authorized Google credential; retrying with account selection", error)
+            try {
+                credentialManager.getCredential(
+                    context = activity,
+                    request = credentialRequest(filterByAuthorizedAccounts = false),
+                )
+            } catch (error: GetCredentialCancellationException) {
+                Log.w(TAG, "Credential Manager cancelled Google account selection", error)
+                throw AppAuthException.Cancelled
+            }
         } catch (error: GetCredentialCancellationException) {
             Log.w(
                 TAG,
@@ -67,9 +79,9 @@ class NativeGoogleSignInService(context: Context) {
         }
     }
 
-    private fun credentialRequest(): GetCredentialRequest {
+    private fun credentialRequest(filterByAuthorizedAccounts: Boolean): GetCredentialRequest {
         val option = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
+            .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts)
             .setServerClientId(clientId)
             .build()
         return GetCredentialRequest.Builder()
