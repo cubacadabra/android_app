@@ -117,6 +117,13 @@ data class AppAuthResult(
     val browserHandoffCode: String?,
 )
 
+data class AppProfileUpdateResult(val user: AppAuthUser, val age: Int?)
+
+sealed class AppProfileException : Exception() {
+    data object Unauthorized : AppProfileException()
+    data class Server(val statusCode: Int, val code: String?) : AppProfileException()
+}
+
 sealed class AppAuthException : Exception() {
     data object Cancelled : AppAuthException()
     class InvalidResponse(cause: Throwable? = null) : AppAuthException() {
@@ -230,6 +237,28 @@ class AppAuthenticationService(context: Context) {
             .getOrNull()
             ?.takeIf { it.isNotEmpty() }
             ?: throw AppAuthException.InvalidResponse()
+    }
+
+    suspend fun saveUsername(username: String): AppProfileUpdateResult {
+        val accessToken = tokenStore.load()?.first ?: throw AppProfileException.Unauthorized
+        val response = request(
+            "auth/username",
+            "POST",
+            org.json.JSONObject().put("username", username),
+            accessToken,
+        )
+        if (response.statusCode !in 200..299) {
+            val code = runCatching { org.json.JSONObject(response.body).optString("error").takeIf { it.isNotEmpty() } }
+                .getOrNull()
+            throw AppProfileException.Server(response.statusCode, code)
+        }
+        return runCatching {
+            val json = org.json.JSONObject(response.body)
+            AppProfileUpdateResult(
+                user = parseUser(json.getJSONObject("user")),
+                age = if (json.has("age") && !json.isNull("age")) json.getInt("age") else null,
+            )
+        }.getOrElse { throw AppAuthException.InvalidResponse(it) }
     }
 
     fun clearTokens() = tokenStore.clear()

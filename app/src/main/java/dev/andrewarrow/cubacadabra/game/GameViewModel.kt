@@ -51,6 +51,7 @@ data class EngineFrame(
 )
 
 data class PresenceNotice(val message: String, val joined: Boolean, val id: Long = System.nanoTime())
+data class RemotePlayerSummary(val id: String, val username: String, val playerId: String)
 data class GameUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
@@ -75,6 +76,15 @@ data class GameUiState(
     val lobbyLaunchClockOffset: Long = 0L,
     val isAuthenticated: Boolean = false,
     val authUser: AppAuthUser? = null,
+    val selectedGameID: String = "first-game",
+    val isSelectingGame: Boolean = false,
+    val selectingGameID: String? = null,
+    val gameSelectionError: String? = null,
+    val profileUsernameSaving: Boolean = false,
+    val profileUsernameMessage: String? = null,
+    val profileUsernameMessageIsError: Boolean = false,
+    val blockedPlayerIDs: Set<String> = emptySet(),
+    val activePlayers: List<RemotePlayerSummary> = emptyList(),
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,13 +92,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "GameViewModel"
     }
 
-    private val _state = MutableStateFlow(GameUiState())
+    private val preferences = application.getSharedPreferences("cubacadabra", 0)
+    private val _state = MutableStateFlow(
+        GameUiState(
+            blockedPlayerIDs = preferences.getStringSet("blocked-player-ids", emptySet()).orEmpty(),
+        ),
+    )
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
     private val loader = GamePackageLoader(application)
     private val socket = WorldSocketClient(application, viewModelScope)
     private val authentication = AppAuthenticationService(application)
     private val googleSignIn = NativeGoogleSignInService(application)
+    private var accessToken: String? = null
     private var activityReference: WeakReference<Activity>? = null
     private var isSigningIn = false
     private var engine: Long = 0
@@ -104,6 +120,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var connectedWorldId: String? = null
     private var pendingSessionWorldId: String? = null
     private val remotes = sortedMapOf<String, RemotePlayer>()
+    private val remotePlayerNames = sortedMapOf<String, String>()
+    private val remotePlayerUserIDs = sortedMapOf<String, String>()
 
     init {
         socket.onStateChange = { state -> update { copy(connectionState = state) } }
@@ -144,24 +162,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
             runCatching {
-                val loaded = withContext(Dispatchers.IO) { loader.load() }
-                val created = NativeEngine.nativeCreate()
-                check(created != 0L) { "The Rust game engine could not be created." }
-                try {
-                    check(NativeEngine.nativeLoad(created, loaded.manifest.toByteArray(), true)) {
-                        "The Rust game engine could not load the game manifest."
-                    }
-                    if (!NativeEngine.nativeLoad(created, loaded.script.toByteArray(), false)) {
-                        val details = String(NativeEngine.nativeScriptError(created), StandardCharsets.UTF_8).trim()
-                        throw GamePackageException(
-                            if (details.isEmpty()) "The Luau game script could not be loaded."
-                            else "The Luau game script could not be loaded: $details",
-                        )
-                    }
-                } catch (error: Throwable) {
-                    NativeEngine.nativeDestroy(created)
-                    throw error
-                }
+                val loaded = withContext(Dispatchers.IO) { loader.load("first-game") }
+                val created = createEngine(loaded)
                 engine = created
                 uiViewport?.let { viewport ->
                     NativeEngine.nativeSetUiViewport(
@@ -185,10 +187,45 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 authentication.restore()?.let(::applyAuthentication)
                 connectWorld(worldId)
-                viewModelScope.launch { loader.refreshPackage() }
+                viewModelScope.launch { loader.refreshPackage("first-game") }
             }.onFailure { error ->
                 if (engine == 0L) update { copy(isLoading = false, errorMessage = error.message ?: "Unknown error") }
             }
+        }
+    }
+
+    private fun createEngine(loaded: LoadedGamePackage): Long {
+        val created = NativeEngine.nativeCreate()
+        check(created != 0L) { "The Rust game engine could not be created." }
+        try {
+            check(NativeEngine.nativeLoad(created, loaded.manifest.toByteArray(), true)) {
+                "The Rust game engine could not load the game manifest."
+            }
+            if (!NativeEngine.nativeLoad(created, loaded.script.toByteArray(), false)) {
+                val details = String(NativeEngine.nativeScriptError(created), StandardCharsets.UTF_8).trim()
+                throw GamePackageException(
+                    if (details.isEmpty()) "The Luau game script could not be loaded."
+                    else "The Luau game script could not be loaded: $details",
+                )
+            }
+            uiViewport?.let { viewport ->
+                NativeEngine.nativeSetUiViewport(
+                    created,
+                    viewport.width,
+                    viewport.height,
+                    viewport.scale,
+                    viewport.safeTop,
+                    viewport.safeRight,
+                    viewport.safeBottom,
+                    viewport.safeLeft,
+                )
+            }
+            NativeEngine.nativeSetUsername(created, socket.username.toByteArray())
+            if (_state.value.isAuthenticated) NativeEngine.nativeSetAuthenticated(created, true)
+            return created
+        } catch (error: Throwable) {
+            NativeEngine.nativeDestroy(created)
+            throw error
         }
     }
 
@@ -200,6 +237,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (engine != 0L) NativeEngine.nativeDestroy(engine)
         engine = 0
         remotes.clear()
+        remotePlayerNames.clear()
+        remotePlayerUserIDs.clear()
+        update { copy(activePlayers = emptyList()) }
         lastFrameNanos = null
         load()
     }
@@ -392,6 +432,56 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(usernameStatus = "Checking that name…") }
         socket.setUsername(normalized)
     }
+
+    fun saveProfileUsername(value: String) {
+        val normalized = value.trim()
+        if (normalized.length !in 2..24 || !normalized.matches(Regex("[A-Za-z0-9_-]+"))) {
+            update {
+                copy(
+                    profileUsernameSaving = false,
+                    profileUsernameMessage = "Use 2–24 letters, numbers, _ or -.",
+                    profileUsernameMessageIsError = true,
+                )
+            }
+            return
+        }
+        update { copy(profileUsernameSaving = true, profileUsernameMessage = null, profileUsernameMessageIsError = false) }
+        viewModelScope.launch {
+            runCatching { authentication.saveUsername(normalized) }
+                .onSuccess { result ->
+                    applyProfileUpdate(result)
+                    update {
+                        copy(
+                            profileUsernameSaving = false,
+                            profileUsernameMessage = "Username saved.",
+                            profileUsernameMessageIsError = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    val message = when (error) {
+                        is AppProfileException.Server -> when (error.code) {
+                            "username_taken" -> "That username is already in use. Try another."
+                            "username_not_allowed" -> "That username isn’t available. Try another."
+                            else -> "We couldn’t save your username. Please try again."
+                        }
+                        is AppProfileException.Unauthorized -> "Your sign-in has expired. Please sign in again."
+                        else -> "We couldn’t save your username. Please try again."
+                    }
+                    update {
+                        copy(
+                            profileUsernameSaving = false,
+                            profileUsernameMessage = message,
+                            profileUsernameMessageIsError = true,
+                        )
+                    }
+                }
+        }
+    }
+
+    fun clearProfileUsernameMessage() {
+        update { copy(profileUsernameMessage = null, profileUsernameMessageIsError = false) }
+    }
     fun createRenderer(surface: android.view.Surface, width: Float, height: Float) {
         if (engine == 0L || renderer != 0L) return
         Log.d(TAG, "creating renderer surfaceValid=${surface.isValid} size=${width}x${height}")
@@ -562,6 +652,62 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         connectWorld(_state.value.worldId)
     }
 
+    fun selectGame(gameID: String) {
+        if (GameCatalog.available.none { it.id == gameID }) return
+        if (_state.value.isSelectingGame) return
+        if (_state.value.selectedGameID == gameID && _state.value.packageData != null) {
+            enterGame()
+            return
+        }
+
+        update { copy(isSelectingGame = true, selectingGameID = gameID, gameSelectionError = null) }
+        viewModelScope.launch {
+            runCatching {
+                val loaded = withContext(Dispatchers.IO) { loader.load(gameID) }
+                val nextEngine = createEngine(loaded)
+                if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
+                renderer = 0
+                if (engine != 0L) NativeEngine.nativeDestroy(engine)
+                engine = nextEngine
+                socket.disconnect()
+                connectedWorldId = null
+                pendingSessionWorldId = null
+                remotes.clear()
+                remotePlayerNames.clear()
+                remotePlayerUserIDs.clear()
+                val worldID = loaded.packageData.startWorld
+                socket.setHidden(worldID == "settings")
+                update {
+                    copy(
+                        isMainMenu = true,
+                        isSelectingGame = false,
+                        selectingGameID = null,
+                        selectedGameID = gameID,
+                        packageData = loaded.packageData,
+                        worldId = worldID,
+                        frame = NativeEngine.nativeReadFrame(nextEngine).decodeFrame(),
+                        activePlayers = emptyList(),
+                        gameSelectionError = null,
+                        buildPhase = "build",
+                        buildPrompt = "",
+                        buildBlocks = emptyList(),
+                        lobbyLaunchStartsAt = null,
+                    )
+                }
+                viewModelScope.launch { loader.refreshPackage(gameID) }
+                enterGame()
+            }.onFailure { error ->
+                update {
+                    copy(
+                        isSelectingGame = false,
+                        selectingGameID = null,
+                        gameSelectionError = error.message ?: "That game is unavailable right now.",
+                    )
+                }
+            }
+        }
+    }
+
     private fun exitToMainMenu() {
         val previousWorldId = _state.value.worldId
         forward = 0f
@@ -599,6 +745,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyAuthentication(result: AppAuthResult) {
         Log.d(TAG, "applying authentication user=${result.user.id} engineReady=${engine != 0L}")
+        accessToken = result.accessToken
         update { copy(isAuthenticated = true, authUser = result.user) }
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, true)
         socket.setAccessToken(result.accessToken)
@@ -607,9 +754,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
             update { copy(username = username) }
         }
+        viewModelScope.launch { refreshBlockedPlayers() }
+    }
+
+    private fun applyProfileUpdate(result: AppProfileUpdateResult) {
+        update { copy(authUser = result.user) }
+        result.user.username?.takeIf { it.isNotEmpty() }?.let { username ->
+            socket.adoptUsername(username)
+            if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
+            update { copy(username = username) }
+        }
     }
 
     private fun clearAuthentication() {
+        accessToken = null
         update { copy(isAuthenticated = false, authUser = null) }
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
         socket.setAccessToken(null)
@@ -623,7 +781,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handlePresence(event: PresenceEvent) {
-        if (event.type == "player_leave") remotes.remove(event.playerId)
+        val isSelf = event.playerId == socket.playerId
+        if (!isSelf) {
+            if (event.type == "player_leave") {
+                remotes.remove(event.playerId)
+                remotePlayerNames.remove(event.playerId)
+                remotePlayerUserIDs.remove(event.playerId)
+            } else {
+                event.username?.let { remotePlayerNames[event.playerId] = it }
+                event.userId?.let { remotePlayerUserIDs[event.playerId] = it }
+            }
+        }
         val fallback = when {
             event.playerId.startsWith("ios-") -> "iOS"
             event.playerId.startsWith("web-") -> "Web"
@@ -637,11 +805,94 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else -> "left the world"
         }
         val notice = PresenceNotice("$label $action", joined)
-        update { copy(presenceNotice = notice) }
+        update { copy(presenceNotice = notice, activePlayers = activeRemotePlayers()) }
         viewModelScope.launch {
             kotlinx.coroutines.delay(4_000)
             update { if (presenceNotice?.id == notice.id) copy(presenceNotice = null) else this }
         }
+    }
+
+    private fun activeRemotePlayers(): List<RemotePlayerSummary> = remotePlayerNames.keys
+        .filter { playerId ->
+            val userID = remotePlayerUserIDs[playerId]
+            !blockedIDs().contains(userID ?: playerId)
+        }
+        .sorted()
+        .map { playerId ->
+            RemotePlayerSummary(
+                id = remotePlayerUserIDs[playerId] ?: playerId,
+                username = remotePlayerNames[playerId] ?: defaultPlayerLabel(playerId),
+                playerId = playerId,
+            )
+        }
+
+    fun blockPlayer(player: RemotePlayerSummary) {
+        val targetID = player.id
+        val current = _state.value.blockedPlayerIDs
+        if (targetID in current || !_state.value.isAuthenticated) return
+        update { copy(blockedPlayerIDs = current + targetID) }
+        update { copy(activePlayers = activeRemotePlayers()) }
+        persistBlockedIDs()
+        viewModelScope.launch {
+            runCatching { moderationService().blockPlayer(targetID) }
+                .onFailure {
+                    update {
+                        copy(
+                            blockedPlayerIDs = blockedPlayerIDs - targetID,
+                            activePlayers = activeRemotePlayers(),
+                        )
+                    }
+                    persistBlockedIDs()
+                }
+        }
+    }
+
+    fun unblockPlayer(playerID: String) {
+        if (playerID !in _state.value.blockedPlayerIDs || !_state.value.isAuthenticated) return
+        update { copy(blockedPlayerIDs = blockedPlayerIDs - playerID) }
+        update { copy(activePlayers = activeRemotePlayers()) }
+        persistBlockedIDs()
+        viewModelScope.launch {
+            runCatching { moderationService().unblockPlayer(playerID) }
+                .onFailure {
+                    update {
+                        copy(
+                            blockedPlayerIDs = blockedPlayerIDs + playerID,
+                            activePlayers = activeRemotePlayers(),
+                        )
+                    }
+                    persistBlockedIDs()
+                }
+        }
+    }
+
+    private fun refreshBlockedPlayers() {
+        if (!_state.value.isAuthenticated) return
+        viewModelScope.launch {
+            runCatching { moderationService().fetchBlockedPlayerIds() }
+                .onSuccess { ids ->
+                    update { copy(blockedPlayerIDs = blockedPlayerIDs + ids, activePlayers = activeRemotePlayers()) }
+                    persistBlockedIDs()
+                }
+        }
+    }
+
+    private fun moderationService() = ModerationService(socket.playerId, accessToken)
+
+    private fun blockedIDs() = _state.value.blockedPlayerIDs
+
+    private fun persistBlockedIDs() {
+        preferences.edit().putStringSet("blocked-player-ids", _state.value.blockedPlayerIDs).apply()
+    }
+
+    private fun defaultPlayerLabel(playerID: String): String {
+        val platform = when {
+            playerID.startsWith("ios-") -> "iOS"
+            playerID.startsWith("web-") -> "Web"
+            playerID.startsWith("android-") -> "Android"
+            else -> "Player"
+        }
+        return "$platform Player ${playerID.takeLast(4).uppercase()}"
     }
 
     private fun handleUsername(event: UsernameEvent) {

@@ -20,7 +20,12 @@ enum class WorldConnectionState(val label: String) {
 }
 
 data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
-data class PresenceEvent(val type: String, val playerId: String, val username: String? = null)
+data class PresenceEvent(
+    val type: String,
+    val playerId: String,
+    val username: String? = null,
+    val userId: String? = null,
+)
 data class SessionEvent(val playerId: String, val username: String?, val hasUsername: Boolean, val loggedIn: Boolean, val authenticated: Boolean)
 data class UsernameEvent(val type: String, val username: String?, val code: String?)
 data class MovementEvent(
@@ -224,7 +229,14 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
                 sprinting = event.optBoolean("sprinting"),
             ), isSelf = id == playerId, corrected = event.optBoolean("corrected")))
         } else if (type == "player_join" || type == "player_leave" || type == "player_name") {
-            onPresence(PresenceEvent(type, id, event.optString("username").takeIf { it.isNotBlank() }))
+            onPresence(
+                PresenceEvent(
+                    type = type,
+                    playerId = id,
+                    username = event.optString("username").takeIf { it.isNotBlank() },
+                    userId = event.optString("user_id").takeIf { it.isNotBlank() },
+                ),
+            )
         }
     }
 

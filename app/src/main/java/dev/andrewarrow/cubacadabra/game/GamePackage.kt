@@ -31,6 +31,19 @@ data class GamePackage(
     fun runtimeWorldIds(): List<String> = listOf("lobby") + worlds.keys.sorted()
 }
 
+data class GameCatalogEntry(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+)
+
+object GameCatalog {
+    val available = listOf(
+        GameCatalogEntry("first-game", "First Game", "Build together in the clearing"),
+        GameCatalogEntry("second-game", "Second Game", "Drop signals in the relay yard"),
+    )
+}
+
 data class LaunchRoute(val destinationWorld: String, val authoritative: Boolean = false)
 data class SceneDefinition(val eyebrow: String, val title: String, val description: String, val maxPlayers: Int)
 data class WorldSettings(
@@ -88,23 +101,40 @@ class GamePackageLoader(context: Context) {
     private val maximumManifestBytes = 512 * 1024
     private val maximumScriptBytes = 512 * 1024
 
-    suspend fun load(): LoadedGamePackage = withContext(Dispatchers.IO) {
-        val bundled = loadBundledPackage()
-        val cached = cachedPackage()
-        Log.d(TAG, "package load bundledScriptBytes=${bundled.script.toByteArray().size} cached=${cached != null} selected=${if (cached != null) "cached" else "bundled"}")
-        cached ?: bundled
+    suspend fun load(gameID: String = "first-game"): LoadedGamePackage = withContext(Dispatchers.IO) {
+        val cached = cachedPackage(gameID)
+        if (cached != null) {
+            Log.d(TAG, "package load game=$gameID selected=cached")
+            return@withContext cached
+        }
+        val bundled = runCatching { loadBundledPackage(gameID) }.getOrNull()
+        if (bundled != null) {
+            Log.d(TAG, "package load game=$gameID selected=bundled")
+            return@withContext bundled
+        }
+        val base = remoteBaseUrl(gameID)
+        val downloaded = makePackage(
+            fetch(URL(base + "manifest.json"), maximumManifestBytes),
+            fetch(URL(base + "game.luau"), maximumScriptBytes),
+        )
+        preferences.edit()
+            .putString(manifestKey(gameID), downloaded.manifest)
+            .putString(scriptKey(gameID), downloaded.script)
+            .apply()
+        Log.d(TAG, "package load game=$gameID selected=remote")
+        downloaded
     }
 
-    suspend fun refreshPackage() = withContext(Dispatchers.IO) {
+    suspend fun refreshPackage(gameID: String = "first-game") = withContext(Dispatchers.IO) {
         runCatching {
-            val base = ClientConfiguration.gameBaseUrl.trimEnd('/') + "/"
+            val base = remoteBaseUrl(gameID)
             val downloadedPackage = makePackage(
                 fetch(URL(base + "manifest.json"), maximumManifestBytes),
                 fetch(URL(base + "game.luau"), maximumScriptBytes),
             )
             preferences.edit()
-                .putString(CACHED_MANIFEST_KEY, downloadedPackage.manifest)
-                .putString(CACHED_SCRIPT_KEY, downloadedPackage.script)
+                .putString(manifestKey(gameID), downloadedPackage.manifest)
+                .putString(scriptKey(gameID), downloadedPackage.script)
                 .apply()
         }.onSuccess {
             Log.d(TAG, "package refresh succeeded")
@@ -113,19 +143,38 @@ class GamePackageLoader(context: Context) {
         }
     }
 
-    private fun cachedPackage(): LoadedGamePackage? {
-        val manifest = preferences.getString(CACHED_MANIFEST_KEY, null) ?: return null
-        val script = preferences.getString(CACHED_SCRIPT_KEY, null) ?: return null
+    private fun cachedPackage(gameID: String): LoadedGamePackage? {
+        val manifest = preferences.getString(manifestKey(gameID), null)
+            ?: if (gameID == "first-game") preferences.getString(CACHED_MANIFEST_KEY, null) else null
+            ?: return null
+        val script = preferences.getString(scriptKey(gameID), null)
+            ?: if (gameID == "first-game") preferences.getString(CACHED_SCRIPT_KEY, null) else null
+            ?: return null
         return runCatching {
             makePackage(manifest.toByteArray(Charsets.UTF_8), script.toByteArray(Charsets.UTF_8))
         }.getOrNull()
     }
 
-    private fun loadBundledPackage(): LoadedGamePackage {
-        val manifestBytes = applicationContext.assets.open("game-package/manifest.json").use { it.readBytes() }
-        val scriptBytes = applicationContext.assets.open("game-package/game.luau").use { it.readBytes() }
+    private fun loadBundledPackage(gameID: String): LoadedGamePackage {
+        val directory = if (gameID == "first-game") "game-package" else "game-package-$gameID"
+        val manifestPath = "$directory/manifest.json"
+        val scriptPath = "$directory/game.luau"
+        val manifestBytes = applicationContext.assets.open(manifestPath).use { it.readBytes() }
+        val scriptBytes = applicationContext.assets.open(scriptPath).use { it.readBytes() }
         return makePackage(manifestBytes, scriptBytes)
     }
+
+    private fun remoteBaseUrl(gameID: String): String {
+        val base = ClientConfiguration.gameBaseUrl.trimEnd('/')
+        val authorityStart = base.indexOf("://").let { if (it < 0) 0 else it + 3 }
+        val pathStart = base.indexOf('/', authorityStart)
+        if (pathStart < 0) return "$base/$gameID/"
+        val parentPathEnd = base.lastIndexOf('/')
+        return "${base.substring(0, parentPathEnd)}/$gameID/"
+    }
+
+    private fun manifestKey(gameID: String) = "manifest.v3.$gameID"
+    private fun scriptKey(gameID: String) = "script.v3.$gameID"
 
     private fun makePackage(manifestBytes: ByteArray, scriptBytes: ByteArray): LoadedGamePackage {
         val manifest = decodeUtf8(manifestBytes)
