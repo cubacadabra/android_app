@@ -89,6 +89,14 @@ android {
         resValues = true
     }
 
+    signingConfigs {
+        getByName("debug") {
+            storePassword = "testing"
+            keyAlias = "key0"
+            keyPassword = "testing"
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "http://127.0.0.1:5173/games/first-game/"}\"")
