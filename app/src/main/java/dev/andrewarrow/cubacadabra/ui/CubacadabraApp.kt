@@ -58,7 +58,62 @@ fun CubacadabraApp(model: GameViewModel = viewModel()) {
         when {
             state.isLoading -> LoadingScreen()
             state.errorMessage != null -> ErrorScreen(state.errorMessage, model::retry)
+            state.isMainMenu -> MainMenuScreen(model)
             else -> GameScreen(state, model)
+        }
+    }
+}
+
+@Composable
+private fun MainMenuScreen(model: GameViewModel) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 24.dp, vertical = 18.dp)
+                .widthIn(max = 720.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            Text(
+                "CUBACADABRA",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.1.sp,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Your cubes",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Choose a game to enter its lobby.",
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .68f),
+                    fontSize = 17.sp,
+                )
+            }
+            Button(
+                onClick = model::enterGame,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Text(
+                    "ENTER THE LOBBY",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.1.sp,
+                )
+            }
         }
     }
 }

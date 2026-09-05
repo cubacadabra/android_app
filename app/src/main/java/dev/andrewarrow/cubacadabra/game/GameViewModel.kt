@@ -54,6 +54,7 @@ data class PresenceNotice(val message: String, val joined: Boolean, val id: Long
 data class GameUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
+    val isMainMenu: Boolean = false,
     val packageData: GamePackage? = null,
     val worldId: String = "lobby",
     val frame: EngineFrame? = null,
@@ -339,6 +340,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 "shared.sign_in" -> if (uiEvent.phase == "activate") beginSignIn()
+                "shared.leave_game" -> if (uiEvent.phase == "activate") exitToMainMenu()
                 "shared.sign_out" -> if (uiEvent.phase == "activate") signOut()
                 "build.tool" -> if (uiEvent.phase == "activate") {
                     val tools = listOf("place", "rotate", "remove", "recolor")
@@ -528,6 +530,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val credential = googleSignIn.signIn(activity)
                 applyAuthentication(authentication.authenticateGoogle(credential))
+                exitToMainMenu()
             } catch (_: AppAuthException.Cancelled) {
                 // The user dismissed the Google sign-in flow.
             } catch (error: Throwable) {
@@ -535,6 +538,37 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 isSigningIn = false
             }
+        }
+    }
+
+    fun enterGame() {
+        if (!_state.value.isMainMenu) return
+        lastFrameNanos = null
+        update { copy(isMainMenu = false) }
+        connectWorld(_state.value.worldId)
+    }
+
+    private fun exitToMainMenu() {
+        forward = 0f
+        strafe = 0f
+        jumpQueued = false
+        lastFrameNanos = null
+        pendingSessionWorldId = null
+        val lobbyIndex = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
+        if (lobbyIndex >= 0) NativeEngine.nativeStartWorld(engine, lobbyIndex)
+        setNativeBuildBlocks(emptyList())
+        socket.disconnect()
+        connectedWorldId = null
+        update {
+            copy(
+                isMainMenu = true,
+                worldId = "lobby",
+                buildPhase = "build",
+                buildPrompt = "",
+                buildBlocks = emptyList(),
+                lobbyLaunchStartsAt = null,
+                sprinting = false,
+            )
         }
     }
 
