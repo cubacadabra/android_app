@@ -9,7 +9,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Cubacadabra">
         <activity
-            android:name=".MainActivity"
+            android:name="dev.andrewarrow.cubacadabra.MainActivity"
             android:exported="true"
             android:screenOrientation="landscape">
             <intent-filter>
