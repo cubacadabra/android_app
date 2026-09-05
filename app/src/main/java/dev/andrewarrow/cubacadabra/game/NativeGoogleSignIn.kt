@@ -9,7 +9,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import dev.andrewarrow.cubacadabra.R
@@ -33,6 +33,12 @@ class NativeGoogleSignInService(context: Context) {
                 request = credentialRequest(),
             )
         } catch (error: GetCredentialCancellationException) {
+            Log.w(
+                TAG,
+                "Credential Manager cancelled Google sign-in " +
+                    "type=${error::class.java.name} message=${error.message}",
+                error,
+            )
             throw AppAuthException.Cancelled
         }
 
@@ -62,7 +68,9 @@ class NativeGoogleSignInService(context: Context) {
     }
 
     private fun credentialRequest(): GetCredentialRequest {
-        val option = GetSignInWithGoogleOption.Builder(clientId)
+        val option = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(clientId)
             .build()
         return GetCredentialRequest.Builder()
             .addCredentialOption(option)

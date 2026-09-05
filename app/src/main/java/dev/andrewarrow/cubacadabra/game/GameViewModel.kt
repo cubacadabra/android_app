@@ -313,7 +313,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 continue
             }
             val action = event.optString("action")
-            if (action.startsWith("build.")) {
+            if (action.startsWith("build.") || action.startsWith("shared.")) {
                 Log.d(TAG, "native UI event node=${event.optString("nodeId")} action=$action phase=${event.optString("phase")}")
             }
             val uiEvent = EngineUiEvent(
@@ -520,42 +520,57 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun beginSignIn() {
-        if (isSigningIn) return
+        if (isSigningIn) {
+            Log.d(TAG, "ignoring sign-in request because sign-in is already running")
+            return
+        }
         val activity = activityReference?.get() ?: run {
             Log.w(TAG, "native Google sign-in requested without an active Activity")
             return
         }
+        Log.d(TAG, "starting Rust-triggered Google sign-in world=${_state.value.worldId} authenticated=${_state.value.isAuthenticated}")
         isSigningIn = true
         viewModelScope.launch {
             try {
                 val credential = googleSignIn.signIn(activity)
-                applyAuthentication(authentication.authenticateGoogle(credential))
+                Log.d(TAG, "Google credential returned; exchanging credential with backend")
+                val result = authentication.authenticateGoogle(credential)
+                Log.d(TAG, "backend sign-in succeeded user=${result.user.id} username=${result.user.username}")
+                applyAuthentication(result)
+                Log.d(TAG, "authentication applied; requesting main-menu transition")
                 exitToMainMenu()
             } catch (_: AppAuthException.Cancelled) {
                 // The user dismissed the Google sign-in flow.
+                Log.d(TAG, "Google sign-in was cancelled")
             } catch (error: Throwable) {
                 Log.w(TAG, "native Google sign-in failed", error)
             } finally {
                 isSigningIn = false
+                Log.d(TAG, "Rust-triggered Google sign-in finished")
             }
         }
     }
 
     fun enterGame() {
-        if (!_state.value.isMainMenu) return
+        if (!_state.value.isMainMenu) {
+            Log.d(TAG, "ignoring enter-game request because main menu is not visible")
+            return
+        }
+        Log.d(TAG, "leaving main menu and entering world=${_state.value.worldId}")
         lastFrameNanos = null
         update { copy(isMainMenu = false) }
         connectWorld(_state.value.worldId)
     }
 
     private fun exitToMainMenu() {
+        val previousWorldId = _state.value.worldId
         forward = 0f
         strafe = 0f
         jumpQueued = false
         lastFrameNanos = null
         pendingSessionWorldId = null
         val lobbyIndex = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
-        if (lobbyIndex >= 0) NativeEngine.nativeStartWorld(engine, lobbyIndex)
+        val movedToLobby = lobbyIndex >= 0 && NativeEngine.nativeStartWorld(engine, lobbyIndex)
         setNativeBuildBlocks(emptyList())
         socket.disconnect()
         connectedWorldId = null
@@ -570,6 +585,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 sprinting = false,
             )
         }
+        Log.d(TAG, "main-menu transition complete previousWorld=$previousWorldId movedToLobby=$movedToLobby isMainMenu=${_state.value.isMainMenu}")
     }
 
     private fun signOut() {
@@ -582,6 +598,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyAuthentication(result: AppAuthResult) {
+        Log.d(TAG, "applying authentication user=${result.user.id} engineReady=${engine != 0L}")
         update { copy(isAuthenticated = true, authUser = result.user) }
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, true)
         socket.setAccessToken(result.accessToken)

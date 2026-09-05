@@ -2,6 +2,7 @@ package dev.andrewarrow.cubacadabra.ui
 
 import android.content.Context
 import android.graphics.PointF
+import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -54,6 +55,12 @@ import kotlinx.coroutines.isActive
 @Composable
 fun CubacadabraApp(model: GameViewModel = viewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.isLoading, state.errorMessage, state.isMainMenu) {
+        Log.d(
+            "CubacadabraApp",
+            "render mode loading=${state.isLoading} error=${state.errorMessage != null} mainMenu=${state.isMainMenu}",
+        )
+    }
     Box(Modifier.fillMaxSize()) {
         when {
             state.isLoading -> LoadingScreen()
