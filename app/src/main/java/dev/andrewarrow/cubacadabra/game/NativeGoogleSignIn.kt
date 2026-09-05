@@ -62,14 +62,14 @@ class NativeGoogleSignInService(context: Context) {
         if (credential !is CustomCredential ||
             credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
         ) {
-            throw AppAuthException.InvalidResponse
+            throw AppAuthException.InvalidResponse()
         }
 
         return try {
             GoogleIdTokenCredential.createFrom(credential.data).idToken
         } catch (error: GoogleIdTokenParsingException) {
             Log.w(TAG, "Google returned an invalid ID token credential", error)
-            throw AppAuthException.InvalidResponse
+            throw AppAuthException.InvalidResponse(error)
         }
     }
 
@@ -120,7 +120,11 @@ data class AppAuthResult(
 
 sealed class AppAuthException : Exception() {
     data object Cancelled : AppAuthException()
-    data object InvalidResponse : AppAuthException()
+    class InvalidResponse(cause: Throwable? = null) : AppAuthException() {
+        init {
+            cause?.let { initCause(it) }
+        }
+    }
     data object Unavailable : AppAuthException()
     data class Server(val statusCode: Int) : AppAuthException()
 }
@@ -242,18 +246,37 @@ class AppAuthenticationService(context: Context) {
     private suspend fun tokenRequest(path: String, body: org.json.JSONObject): AppAuthResult {
         val response = request(path, "POST", body, null)
         if (response.statusCode != 200) throw AppAuthException.Server(response.statusCode)
-        return runCatching {
-            val json = org.json.JSONObject(response.body)
-            val result = AppAuthResult(
+        val json = try {
+            org.json.JSONObject(response.body)
+        } catch (error: Throwable) {
+            Log.w(
+                TAG,
+                "Invalid auth response path=$path status=${response.statusCode} " +
+                    "bytes=${response.body.toByteArray(Charsets.UTF_8).size}",
+                error,
+            )
+            throw AppAuthException.InvalidResponse(error)
+        }
+        val result = try {
+            AppAuthResult(
                 accessToken = json.getString("access_token"),
                 refreshToken = json.getString("refresh_token"),
                 accessTokenExpiresIn = json.optInt("expires_in", 0),
                 user = parseUser(json.getJSONObject("user")),
                 browserHandoffCode = json.optString("browser_code").takeIf { it.isNotEmpty() },
             )
+        } catch (error: Throwable) {
+            val keys = json.keys().asSequence().toList().sorted().joinToString(",")
+            Log.w(TAG, "Invalid auth response path=$path status=${response.statusCode} keys=$keys", error)
+            throw AppAuthException.InvalidResponse(error)
+        }
+        try {
             tokenStore.save(result.accessToken, result.refreshToken)
-            result
-        }.getOrElse { throw AppAuthException.InvalidResponse }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Could not persist auth tokens after successful response path=$path", error)
+            throw AppAuthException.InvalidResponse(error)
+        }
+        return result
     }
 
     private fun parseUser(json: org.json.JSONObject) = AppAuthUser(
@@ -287,7 +310,7 @@ class AppAuthenticationService(context: Context) {
             val statusCode = connection.responseCode
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
-            if (bytes.size > MAX_RESPONSE_BYTES) throw AppAuthException.InvalidResponse
+            if (bytes.size > MAX_RESPONSE_BYTES) throw AppAuthException.InvalidResponse()
             HttpResponse(statusCode, String(bytes, Charsets.UTF_8))
         } catch (error: AppAuthException) {
             throw error
