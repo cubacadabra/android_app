@@ -1,6 +1,8 @@
 package dev.andrewarrow.cubacadabra.ui
 
+import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.graphics.PointF
 import android.util.Log
 import android.view.MotionEvent
@@ -50,6 +52,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +71,17 @@ import kotlinx.coroutines.isActive
 @Composable
 fun CubacadabraApp(model: GameViewModel = viewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
+    val activity = LocalContext.current as? Activity
+    LaunchedEffect(state.isLoading, state.errorMessage, state.isMainMenu) {
+        val orientation = if (state.isLoading || state.errorMessage != null || state.isMainMenu) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+        if (activity?.requestedOrientation != orientation) {
+            activity?.requestedOrientation = orientation
+        }
+    }
     LaunchedEffect(state.isLoading, state.errorMessage, state.isMainMenu) {
         Log.d(
             "CubacadabraApp",
