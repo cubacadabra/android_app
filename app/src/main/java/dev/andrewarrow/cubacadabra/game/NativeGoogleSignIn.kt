@@ -17,7 +17,6 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingExcept
 import dev.andrewarrow.cubacadabra.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.security.SecureRandom
 
 class NativeGoogleSignInService(context: Context) {
     private companion object {
@@ -140,7 +139,6 @@ private class AppTokenStore(context: Context) {
     }
 
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-    private val random = SecureRandom()
 
     fun load(): Pair<String, String>? = runCatching {
         val encoded = preferences.getString(TOKEN_KEY, null) ?: return null
@@ -156,10 +154,11 @@ private class AppTokenStore(context: Context) {
     }.getOrNull()
 
     fun save(accessToken: String, refreshToken: String) {
-        val iv = ByteArray(GCM_IV_BYTES).also(random::nextBytes)
         val cipher = javax.crypto.Cipher.getInstance(TRANSFORMATION).apply {
-            init(javax.crypto.Cipher.ENCRYPT_MODE, key(), javax.crypto.spec.GCMParameterSpec(GCM_TAG_BITS, iv))
+            // Android Keystore requires GCM encryption to generate its own IV.
+            init(javax.crypto.Cipher.ENCRYPT_MODE, key())
         }
+        val iv = cipher.iv
         val json = org.json.JSONObject().apply {
             put("access_token", accessToken)
             put("refresh_token", refreshToken)
@@ -196,6 +195,7 @@ private class AppTokenStore(context: Context) {
 
 class AppAuthenticationService(context: Context) {
     private companion object {
+        const val TAG = "AppAuthenticationService"
         const val MAX_RESPONSE_BYTES = 256 * 1024
     }
 
@@ -229,7 +229,7 @@ class AppAuthenticationService(context: Context) {
         return runCatching { org.json.JSONObject(response.body).getString("browser_code") }
             .getOrNull()
             ?.takeIf { it.isNotEmpty() }
-            ?: throw AppAuthException.InvalidResponse
+            ?: throw AppAuthException.InvalidResponse()
     }
 
     fun clearTokens() = tokenStore.clear()
