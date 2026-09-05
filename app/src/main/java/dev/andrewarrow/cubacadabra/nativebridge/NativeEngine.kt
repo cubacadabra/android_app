@@ -32,6 +32,7 @@ internal object NativeEngine {
         safeBottom: Float,
         safeLeft: Float,
     )
+    external fun nativeSetAuthenticated(engine: Long, authenticated: Boolean)
     external fun nativeUiPointer(engine: Long, pointerId: Long, phase: Int, x: Float, y: Float): Boolean
     external fun nativePollUiEvent(engine: Long): Boolean
     external fun nativeUiEvent(engine: Long): ByteArray

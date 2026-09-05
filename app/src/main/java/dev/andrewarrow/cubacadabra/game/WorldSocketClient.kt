@@ -21,6 +21,7 @@ enum class WorldConnectionState(val label: String) {
 
 data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
 data class PresenceEvent(val type: String, val playerId: String, val username: String? = null)
+data class SessionEvent(val playerId: String, val username: String?, val hasUsername: Boolean, val loggedIn: Boolean, val authenticated: Boolean)
 data class UsernameEvent(val type: String, val username: String?, val code: String?)
 data class MovementEvent(
     val playerId: String,
@@ -66,9 +67,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private var reconnectJob: Job? = null
     private var lastSentAt = 0L
     private var lastMove: SentMove? = null
+    private var accessToken: String? = null
 
     var onStateChange: (WorldConnectionState) -> Unit = {}
     var onPresence: (PresenceEvent) -> Unit = {}
+    var onSession: (SessionEvent) -> Unit = {}
     var onMovement: (MovementEvent) -> Unit = {}
     var onUsername: (UsernameEvent) -> Unit = {}
     var onExperience: (ExperienceEvent) -> Unit = {}
@@ -114,8 +117,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         val id = worldId ?: return
         if (stopped) return
         notifyState(if (reconnectAttempt == 0) WorldConnectionState.CONNECTING else WorldConnectionState.RECONNECTING)
-        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?player_id=$playerId"
-        socket = client.newWebSocket(Request.Builder().url(url).build(), listener)
+        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?client=android&player_id=$playerId"
+        val request = Request.Builder().url(url).apply {
+            accessToken?.let { header("Authorization", "Bearer $it") }
+        }.build()
+        socket = client.newWebSocket(request, listener)
     }
 
     private val listener = object : WebSocketListener() {
@@ -150,6 +156,16 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
     private fun handle(event: JSONObject) {
         val type = event.optString("type")
+        if (type == "session_identity") {
+            onSession(SessionEvent(
+                playerId = event.optString("id"),
+                username = event.optString("username").takeIf { it.isNotBlank() },
+                hasUsername = event.optBoolean("hasUsername"),
+                loggedIn = event.optBoolean("loggedIn", event.optBoolean("authenticated")),
+                authenticated = event.optBoolean("authenticated"),
+            ))
+            return
+        }
         if (type == "username_updated" || type == "username_error") {
             val updated = event.optString("username").takeIf { it.isNotBlank() }
             if (type == "username_updated" && updated != null) {
@@ -220,6 +236,16 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         }
         pendingUsername = normalized
         socket?.let { sendUsername(normalized, it) }
+    }
+
+    fun setAccessToken(nextAccessToken: String?) {
+        if (accessToken == nextAccessToken) return
+        accessToken = nextAccessToken
+        if (!stopped && worldId != null) {
+            reconnectAttempt = 0
+            closeSocket()
+            openSocket()
+        }
     }
 
     private fun sendUsername(value: String, webSocket: WebSocket) {

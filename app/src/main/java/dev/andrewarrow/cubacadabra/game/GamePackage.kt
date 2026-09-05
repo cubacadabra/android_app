@@ -67,6 +67,10 @@ class GamePackageException(message: String) : Exception(message)
 object ClientConfiguration {
     val gameBaseUrl: String get() = BuildConfig.CUBACADABRA_GAME_BASE_URL
     val backendUrl: String get() = BuildConfig.CUBACADABRA_BACKEND_URL
+    val backendApiUrl: String
+        get() = backendUrl
+            .replaceFirst("wss://", "https://")
+            .replaceFirst("ws://", "http://")
 }
 
 class GamePackageLoader(context: Context) {

@@ -24,6 +24,7 @@ extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
 extern void engine_set_ui_viewport(CubacadabraEngine *, float, float, float, float, float, float, float);
+extern void engine_set_authenticated(CubacadabraEngine *, uint8_t);
 extern uint8_t engine_ui_pointer(CubacadabraEngine *, uint64_t, uint8_t, float, float);
 extern uint8_t engine_ui_poll_event(CubacadabraEngine *);
 extern const uint8_t *engine_ui_event_ptr(const CubacadabraEngine *);
@@ -104,6 +105,11 @@ static void JNICALL nativeSetUiViewport(JNIEnv *env, jclass klass, jlong value, 
                                          jfloat safeLeft) {
     (void)env; (void)klass;
     engine_set_ui_viewport(engine(value), width, height, scale, safeTop, safeRight, safeBottom, safeLeft);
+}
+
+static void JNICALL nativeSetAuthenticated(JNIEnv *env, jclass klass, jlong value, jboolean authenticated) {
+    (void)env; (void)klass;
+    engine_set_authenticated(engine(value), authenticated ? 1 : 0);
 }
 
 static jboolean JNICALL nativeUiPointer(JNIEnv *env, jclass klass, jlong value, jlong pointerID, jint phase,
@@ -269,6 +275,7 @@ static JNINativeMethod methods[] = {
     {"nativeScriptError", "(J)[B", (void *)nativeScriptError},
     {"nativeSetInput", "(JFFZZFFF)V", (void *)nativeSetInput},
     {"nativeSetUiViewport", "(JFFFFFFF)V", (void *)nativeSetUiViewport},
+    {"nativeSetAuthenticated", "(JZ)V", (void *)nativeSetAuthenticated},
     {"nativeUiPointer", "(JJIFF)Z", (void *)nativeUiPointer},
     {"nativePollUiEvent", "(J)Z", (void *)nativePollUiEvent},
     {"nativeUiEvent", "(J)[B", (void *)nativeUiEvent},

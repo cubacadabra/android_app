@@ -1,5 +1,6 @@
 package dev.andrewarrow.cubacadabra.game
 
+import android.app.Activity
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
+import java.lang.ref.WeakReference
 import kotlin.math.min
 
 private data class EngineUiEvent(
@@ -70,6 +72,8 @@ data class GameUiState(
     val buildColor: String = "coral",
     val lobbyLaunchStartsAt: Long? = null,
     val lobbyLaunchClockOffset: Long = 0L,
+    val isAuthenticated: Boolean = false,
+    val authUser: AppAuthUser? = null,
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,6 +86,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val loader = GamePackageLoader(application)
     private val socket = WorldSocketClient(application, viewModelScope)
+    private val authentication = AppAuthenticationService(application)
+    private val googleSignIn = NativeGoogleSignInService(application)
+    private var activityReference: WeakReference<Activity>? = null
+    private var isSigningIn = false
     private var engine: Long = 0
     private var renderer: Long = 0
     private var lastFrameNanos: Long? = null
@@ -100,6 +108,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.onStateChange = { state -> update { copy(connectionState = state) } }
         socket.onPresence = ::handlePresence
         socket.onUsername = ::handleUsername
+        socket.onSession = { event ->
+            if (event.playerId == socket.playerId) {
+                update {
+                    copy(
+                        isAuthenticated = event.loggedIn,
+                        authUser = if (event.loggedIn) authUser else null,
+                    )
+                }
+                if (!event.loggedIn && engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
+            }
+        }
         socket.onMovement = { event -> viewModelScope.launch(Dispatchers.Main.immediate) {
             if (event.isSelf) {
                 if (event.corrected && engine != 0L) {
@@ -163,6 +182,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         username = socket.username,
                         frame = NativeEngine.nativeReadFrame(created).decodeFrame())
                 }
+                authentication.restore()?.let(::applyAuthentication)
                 connectWorld(worldId)
                 viewModelScope.launch { loader.refreshPackage() }
             }.onFailure { error ->
@@ -181,6 +201,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         remotes.clear()
         lastFrameNanos = null
         load()
+    }
+
+    fun attachActivity(activity: Activity) {
+        activityReference = WeakReference(activity)
+    }
+
+    fun detachActivity(activity: Activity) {
+        if (activityReference?.get() === activity) activityReference = null
+    }
+
+    fun refreshAuthentication() {
+        if (engine == 0L) return
+        viewModelScope.launch {
+            authentication.restore()?.let(::applyAuthentication) ?: clearAuthentication()
+        }
     }
 
     fun tick(frameTimeNanos: Long) {
@@ -303,6 +338,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         Log.e(TAG, "could not open the cubacadabra About page", error)
                     }
                 }
+                "shared.sign_in" -> if (uiEvent.phase == "activate") beginSignIn()
+                "shared.sign_out" -> if (uiEvent.phase == "activate") signOut()
                 "build.tool" -> if (uiEvent.phase == "activate") {
                     val tools = listOf("place", "rotate", "remove", "recolor")
                     val nextTool = tools[(tools.indexOf(_state.value.buildTool).coerceAtLeast(0) + 1) % tools.size]
@@ -478,6 +515,53 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             setNativeBuildBlocks(emptyList())
             connectWorld("lobby")
         }
+    }
+
+    private fun beginSignIn() {
+        if (isSigningIn) return
+        val activity = activityReference?.get() ?: run {
+            Log.w(TAG, "native Google sign-in requested without an active Activity")
+            return
+        }
+        isSigningIn = true
+        viewModelScope.launch {
+            try {
+                val credential = googleSignIn.signIn(activity)
+                applyAuthentication(authentication.authenticateGoogle(credential))
+            } catch (_: AppAuthException.Cancelled) {
+                // The user dismissed the Google sign-in flow.
+            } catch (error: Throwable) {
+                Log.w(TAG, "native Google sign-in failed", error)
+            } finally {
+                isSigningIn = false
+            }
+        }
+    }
+
+    private fun signOut() {
+        if (isSigningIn) return
+        authentication.clearTokens()
+        clearAuthentication()
+        activityReference?.get()?.let { activity ->
+            viewModelScope.launch { googleSignIn.signOut(activity) }
+        }
+    }
+
+    private fun applyAuthentication(result: AppAuthResult) {
+        update { copy(isAuthenticated = true, authUser = result.user) }
+        if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, true)
+        socket.setAccessToken(result.accessToken)
+        result.user.username?.takeIf { it.isNotEmpty() }?.let { username ->
+            socket.adoptUsername(username)
+            if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
+            update { copy(username = username) }
+        }
+    }
+
+    private fun clearAuthentication() {
+        update { copy(isAuthenticated = false, authUser = null) }
+        if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
+        socket.setAccessToken(null)
     }
 
     fun lobbyLaunchStatus(pad: LaunchPadDefinition, live: EnginePad?): String {
