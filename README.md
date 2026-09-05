@@ -1,7 +1,7 @@
 # Cubacadabra Android
 
 This is the Kotlin/Jetpack Compose port of `../ios_app`. It loads the same
-`first-game` package, drives the sibling Rust engine, and connects to the same
+portable game package, drives the sibling Rust engine, and connects to the same
 world WebSocket service.
 
 The app intentionally has one small state holder: `GameViewModel` owns the
@@ -27,8 +27,8 @@ Android Studio must have an NDK installed. The build script discovers it from
 `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_SDK_ROOT`, `ANDROID_HOME`, or
 the SDK path in `local.properties`.
 
-Gradle builds the sibling game source with `../first-game/scripts/build_game.sh`
-and includes the generated `game-package/` directory in the APK. At runtime,
+Gradle builds the sibling game source with the shared `../tools` CLI and
+includes the generated `game-package/` directory in the APK. At runtime,
 Android starts from that bundled package or a validated cached package, then
 refreshes `manifest.json` and `game.luau` from the configured host for the next
 launch.

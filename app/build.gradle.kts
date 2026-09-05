@@ -10,8 +10,8 @@ plugins {
 
 val rustRoot = rootProject.file("../rust")
 val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
-val firstGameRoot = rootProject.file("../first-game")
-val gameBuildScript = firstGameRoot.resolve("scripts/build_game.sh")
+val toolsRoot = rootProject.file("../tools")
+val defaultGameRoot = rootProject.file("../first-game")
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { stream -> load(stream) }
 }
@@ -36,9 +36,15 @@ abstract class BuildGamePackageTask : Exec() {
 
 val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") {
     outputDirectory.set(layout.buildDirectory.dir("generated/game-assets"))
-    inputs.files(fileTree(firstGameRoot) { exclude("build/**") })
-    commandLine("sh", gameBuildScript.absolutePath,
-        "--output", outputDirectory.get().asFile.resolve("game-package").absolutePath)
+    inputs.files(
+        fileTree(defaultGameRoot) { exclude("build/**") },
+        fileTree(toolsRoot) { exclude(".venv/**", "__pycache__/**") },
+    )
+    environment("PYTHONPATH", toolsRoot.resolve("src").absolutePath)
+    commandLine(
+        "python3", "-m", "cubacadabra", "build-game", defaultGameRoot.absolutePath,
+        "--output", outputDirectory.get().asFile.resolve("game-package").absolutePath,
+    )
 }
 
 val buildRust = tasks.register<BuildRustTask>("buildRust") {
