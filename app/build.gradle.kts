@@ -1,6 +1,8 @@
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
 import java.util.Properties
 
 plugins {
@@ -33,6 +35,9 @@ abstract class BuildRustTask : Exec() {
 abstract class BuildGamePackageTask : Exec() {
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val execOperations: ExecOperations
 }
 
 val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") {
@@ -48,7 +53,7 @@ val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") 
         "--output", outputDirectory.get().asFile.resolve("game-package").absolutePath,
     )
     doLast {
-        project.exec {
+        execOperations.exec {
             environment("PYTHONPATH", toolsRoot.resolve("src").absolutePath)
             commandLine(
                 "python3", "-m", "cubacadabra", "build-game", secondGameRoot.absolutePath,
