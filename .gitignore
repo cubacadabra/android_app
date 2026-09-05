@@ -1,6 +1,7 @@
 .gradle/
 app/.cxx/
 .idea
+app/release
 build/
 app/build/
 app/src/main/assets/game-package/
