@@ -145,11 +145,10 @@ class GamePackageLoader(context: Context) {
 
     private fun cachedPackage(gameID: String): LoadedGamePackage? {
         val manifest = preferences.getString(manifestKey(gameID), null)
-            ?: if (gameID == "first-game") preferences.getString(CACHED_MANIFEST_KEY, null) else null
-            ?: return null
+            ?: if (gameID == "first-game") preferences.getString(CACHED_MANIFEST_KEY, null).orEmpty() else ""
         val script = preferences.getString(scriptKey(gameID), null)
-            ?: if (gameID == "first-game") preferences.getString(CACHED_SCRIPT_KEY, null) else null
-            ?: return null
+            ?: if (gameID == "first-game") preferences.getString(CACHED_SCRIPT_KEY, null).orEmpty() else ""
+        if (manifest.isEmpty() || script.isEmpty()) return null
         return runCatching {
             makePackage(manifest.toByteArray(Charsets.UTF_8), script.toByteArray(Charsets.UTF_8))
         }.getOrNull()
