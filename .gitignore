@@ -2,6 +2,8 @@
 app/.cxx/
 .idea
 app/release
+keystore.properties
+upload-key.jks
 build/
 app/build/
 app/src/main/assets/game-package/
