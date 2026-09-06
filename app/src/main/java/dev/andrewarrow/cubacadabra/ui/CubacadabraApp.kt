@@ -420,7 +420,7 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
                 state.presenceNotice?.let { notice ->
                     PresenceNotice(
                         message = notice.message,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp, start = 8.dp),
                     )
                 }
             }
@@ -707,17 +707,17 @@ private fun GameAtmosphere(isSession: Boolean) {
 @Composable
 private fun PresenceNotice(message: String, modifier: Modifier = Modifier) {
     Surface(
-        modifier.fillMaxWidth().widthIn(max = 390.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .94f),
+        modifier.widthIn(max = 280.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = .82f),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
-        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
     ) {
         Text(
             message,
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,
         )
