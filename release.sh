@@ -21,7 +21,8 @@ if [[ ! -f "$KEYSTORE_PROPERTIES" ]]; then
 fi
 
 echo "Cleaning and building the signed release bundle..."
-./gradlew clean :app:bundleRelease --no-build-cache
+./gradlew clean --no-build-cache
+./gradlew :app:bundleRelease --no-build-cache
 
 echo "Verifying the bundle signature..."
 VERIFY_OUTPUT="$(jarsigner -verify "$BUNDLE" 2>&1)"
