@@ -119,6 +119,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var isSigningIn = false
     private var engine: Long = 0
     private var renderer: Long = 0
+    private var lobbyEnabled = true
     private var lastFrameNanos: Long? = null
     private var forward = 0f
     private var strafe = 0f
@@ -207,13 +208,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         viewport.safeLeft,
                     )
                 }
-                val worldId = loaded.packageData.startWorld
+                val initialFrame = NativeEngine.nativeReadFrame(created).decodeFrame()
+                val worldId = loaded.packageData.runtimeWorldIds()
+                    .getOrNull(initialFrame.activeWorldIndex)
+                    ?: loaded.packageData.initialWorld
+                lobbyEnabled = loaded.packageData.lobbyEnabled && worldId == "lobby"
                 NativeEngine.nativeSetUsername(created, socket.username.toByteArray())
                 socket.setHidden(worldId == "settings")
                 update {
                     copy(isLoading = false, packageData = loaded.packageData, worldId = worldId,
                         username = socket.username,
-                        frame = NativeEngine.nativeReadFrame(created).decodeFrame())
+                        frame = initialFrame)
                 }
                 authentication.restore()?.let(::applyAuthentication)
                 connectWorld(worldId)
@@ -628,6 +633,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun saveBuild() = socket.sendExperience("build_save")
 
     fun returnToLobby() {
+        if (!lobbyEnabled) return
         pendingSessionWorldId = null
         val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
         if (index >= 0 && NativeEngine.nativeStartWorld(engine, index)) {
@@ -763,7 +769,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 remotes.clear()
                 remotePlayerNames.clear()
                 remotePlayerUserIDs.clear()
-                val worldID = loaded.packageData.startWorld
+                val initialFrame = NativeEngine.nativeReadFrame(nextEngine).decodeFrame()
+                val worldID = loaded.packageData.runtimeWorldIds()
+                    .getOrNull(initialFrame.activeWorldIndex)
+                    ?: loaded.packageData.initialWorld
+                lobbyEnabled = loaded.packageData.lobbyEnabled && worldID == "lobby"
                 socket.setHidden(worldID == "settings")
                 update {
                     copy(
@@ -773,7 +783,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         selectedGameID = gameID,
                         packageData = loaded.packageData,
                         worldId = worldID,
-                        frame = NativeEngine.nativeReadFrame(nextEngine).decodeFrame(),
+                        frame = initialFrame,
                         activePlayers = emptyList(),
                         gameSelectionError = null,
                         buildPhase = "build",
@@ -803,15 +813,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         jumpQueued = false
         lastFrameNanos = null
         pendingSessionWorldId = null
-        val lobbyIndex = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
-        val movedToLobby = lobbyIndex >= 0 && NativeEngine.nativeStartWorld(engine, lobbyIndex)
+        val packageData = _state.value.packageData
+        val returnWorld = if (lobbyEnabled) "lobby" else packageData?.initialWorld
+        val returnIndex = returnWorld?.let { packageData?.runtimeWorldIds()?.indexOf(it) } ?: -1
+        val movedToReturnWorld = returnIndex >= 0 && NativeEngine.nativeStartWorld(engine, returnIndex)
         setNativeBuildBlocks(emptyList())
         socket.disconnect()
         connectedWorldId = null
         update {
             copy(
                 isMainMenu = true,
-                worldId = "lobby",
+                worldId = returnWorld ?: "lobby",
                 buildPhase = "build",
                 buildPrompt = "",
                 buildBlocks = emptyList(),
@@ -819,7 +831,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 sprinting = false,
             )
         }
-        Log.d(TAG, "main-menu transition complete previousWorld=$previousWorldId movedToLobby=$movedToLobby isMainMenu=${_state.value.isMainMenu}")
+        Log.d(TAG, "main-menu transition complete previousWorld=$previousWorldId movedToWorld=$movedToReturnWorld isMainMenu=${_state.value.isMainMenu}")
     }
 
     fun signOut() {

@@ -153,7 +153,11 @@ private fun HomeMenu(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Choose a game to enter its lobby.",
+                    if (state.packageData?.lobbyEnabled == false) {
+                        "Choose a game to play together."
+                    } else {
+                        "Choose a game to enter its lobby."
+                    },
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = .68f),
                     fontSize = 17.sp,
                 )

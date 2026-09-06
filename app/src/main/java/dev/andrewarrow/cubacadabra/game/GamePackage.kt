@@ -14,6 +14,7 @@ import java.net.URL
 
 data class GamePackage(
     val startWorld: String,
+    val lobby: Boolean,
     val launch: LaunchRoute,
     val scene: SceneDefinition,
     val palette: Map<String, String>,
@@ -22,6 +23,11 @@ data class GamePackage(
     val blocks: List<BlockDefinition>,
     val worlds: Map<String, WorldDefinition>,
 ) {
+    val lobbyEnabled: Boolean get() = lobby
+
+    val initialWorld: String
+        get() = if (lobbyEnabled || startWorld != "lobby") startWorld else launch.destinationWorld
+
     fun worldDefinition(id: String): WorldDefinition? = if (id == "lobby") {
         WorldDefinition(scene, palette, world, launchPads, blocks)
     } else {
@@ -180,8 +186,8 @@ class GamePackageLoader(context: Context) {
         val script = decodeUtf8(scriptBytes)
         if (script.isEmpty()) throw GamePackageException("The Luau game script is empty.")
         val packageData = parsePackage(JSONObject(manifest))
-        if (packageData.worldDefinition(packageData.startWorld) == null) {
-            throw GamePackageException("The game world \"${packageData.startWorld}\" was not found.")
+        if (packageData.worldDefinition(packageData.initialWorld) == null) {
+            throw GamePackageException("The game world \"${packageData.initialWorld}\" was not found.")
         }
         return LoadedGamePackage(packageData, manifest, script)
     }
@@ -219,6 +225,7 @@ private fun parsePackage(json: JSONObject): GamePackage {
     }
     return GamePackage(
         startWorld = json.getString("startWorld"),
+        lobby = json.optBoolean("lobby", true),
         launch = json.getJSONObject("launch").let { LaunchRoute(it.getString("destinationWorld"), it.optBoolean("authoritative", false)) },
         scene = parseScene(json.getJSONObject("scene")),
         palette = jsonObjectMap(json.optJSONObject("palette")),
