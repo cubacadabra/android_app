@@ -33,6 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +55,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -377,7 +381,78 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
             }
         }
         if (state.usernameEditorOpen) UsernameEditorDialog(state, model)
+        if (state.loginDialogOpen) LoginDialog(state, model)
     }
+}
+
+@Composable
+private fun LoginDialog(state: GameUiState, model: GameViewModel) {
+    var emailMode by remember(state.loginDialogOpen) { mutableStateOf(false) }
+    var email by remember { mutableStateOf("play-review@cubacadabra.com") }
+    var password by remember { mutableStateOf("testing") }
+
+    AlertDialog(
+        onDismissRequest = model::dismissLoginDialog,
+        title = { Text("Sign in to cubacadabra") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (emailMode) {
+                    TextButton(
+                        onClick = { emailMode = false },
+                        enabled = !state.loginInProgress,
+                    ) { Text("OTHER SIGN-IN OPTIONS") }
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Email") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        enabled = !state.loginInProgress,
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Password") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        enabled = !state.loginInProgress,
+                    )
+                    state.loginErrorMessage?.let { message ->
+                        Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    }
+                } else {
+                    Text("Choose how you want to continue.")
+                    Button(
+                        onClick = model::startGoogleSignIn,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !state.loginInProgress,
+                    ) { Text("CONTINUE WITH GOOGLE", fontWeight = FontWeight.Bold) }
+                    OutlinedButton(
+                        onClick = { emailMode = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !state.loginInProgress,
+                    ) { Text("USE EMAIL INSTEAD", fontWeight = FontWeight.Bold) }
+                }
+            }
+        },
+        confirmButton = {
+            if (emailMode) {
+                Button(
+                    onClick = { model.signInWithEmail(email, password) },
+                    enabled = !state.loginInProgress && email.isNotBlank() && password.isNotEmpty(),
+                ) {
+                    if (state.loginInProgress) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
+                    else Text("SIGN IN", fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = model::dismissLoginDialog, enabled = !state.loginInProgress) { Text("CANCEL") }
+        },
+    )
 }
 
 @Composable

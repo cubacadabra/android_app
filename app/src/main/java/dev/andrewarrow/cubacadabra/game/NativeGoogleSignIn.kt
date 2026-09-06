@@ -229,6 +229,12 @@ class AppAuthenticationService(context: Context) {
     suspend fun authenticateGoogle(credential: String): AppAuthResult =
         tokenRequest("auth/app/google", org.json.JSONObject().put("credential", credential))
 
+    suspend fun authenticateEmail(email: String, password: String): AppAuthResult =
+        tokenRequest(
+            "auth/app/email",
+            org.json.JSONObject().put("email", email).put("password", password),
+        )
+
     suspend fun createBrowserHandoffCode(): String {
         val tokens = tokenStore.load() ?: throw AppAuthException.Unavailable
         val response = request("auth/browser/authorize", "POST", null, tokens.first)

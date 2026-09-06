@@ -83,6 +83,9 @@ data class GameUiState(
     val lobbyLaunchClockOffset: Long = 0L,
     val isAuthenticated: Boolean = false,
     val authUser: AppAuthUser? = null,
+    val loginDialogOpen: Boolean = false,
+    val loginInProgress: Boolean = false,
+    val loginErrorMessage: String? = null,
     val selectedGameID: String = "first-game",
     val isSelectingGame: Boolean = false,
     val selectingGameID: String? = null,
@@ -638,12 +641,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             Log.d(TAG, "ignoring sign-in request because sign-in is already running")
             return
         }
-        val activity = activityReference?.get() ?: run {
-            Log.w(TAG, "native Google sign-in requested without an active Activity")
+        if (activityReference?.get() == null) {
+            Log.w(TAG, "sign-in requested without an active Activity")
             return
         }
-        Log.d(TAG, "starting Rust-triggered Google sign-in world=${_state.value.worldId} authenticated=${_state.value.isAuthenticated}")
+        Log.d(TAG, "opening sign-in choices")
+        update { copy(loginDialogOpen = true, loginErrorMessage = null) }
+    }
+
+    fun dismissLoginDialog() {
+        if (!isSigningIn) update { copy(loginDialogOpen = false, loginErrorMessage = null) }
+    }
+
+    fun startGoogleSignIn() {
+        if (isSigningIn) return
+        val activity = activityReference?.get() ?: run {
+            Log.w(TAG, "Google sign-in requested without an active Activity")
+            return
+        }
+        Log.d(TAG, "starting Google sign-in")
         isSigningIn = true
+        update { copy(loginDialogOpen = false, loginInProgress = true, loginErrorMessage = null) }
         viewModelScope.launch {
             try {
                 val credential = googleSignIn.signIn(activity)
@@ -660,7 +678,51 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 Log.w(TAG, "native Google sign-in failed", error)
             } finally {
                 isSigningIn = false
+                update { copy(loginInProgress = false) }
                 Log.d(TAG, "Rust-triggered Google sign-in finished")
+            }
+        }
+    }
+
+    fun signInWithEmail(email: String, password: String) {
+        if (isSigningIn) return
+        val normalizedEmail = email.trim()
+        if (normalizedEmail.isEmpty() || password.isEmpty()) {
+            update { copy(loginErrorMessage = "Enter your email and password.") }
+            return
+        }
+        Log.d(TAG, "starting email sign-in")
+        isSigningIn = true
+        update { copy(loginInProgress = true, loginErrorMessage = null) }
+        viewModelScope.launch {
+            try {
+                val result = authentication.authenticateEmail(normalizedEmail, password)
+                Log.d(TAG, "email sign-in succeeded")
+                applyAuthentication(result)
+                update { copy(loginDialogOpen = false) }
+                exitToMainMenu()
+            } catch (error: AppAuthException.Server) {
+                update {
+                    copy(
+                        loginDialogOpen = true,
+                        loginErrorMessage = if (error.statusCode == 401) {
+                            "That email or password is not correct."
+                        } else {
+                            "We could not finish signing you in. Please try again."
+                        },
+                    )
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "email sign-in failed", error)
+                update {
+                    copy(
+                        loginDialogOpen = true,
+                        loginErrorMessage = "We could not finish signing you in. Please try again.",
+                    )
+                }
+            } finally {
+                isSigningIn = false
+                update { copy(loginInProgress = false) }
             }
         }
     }
