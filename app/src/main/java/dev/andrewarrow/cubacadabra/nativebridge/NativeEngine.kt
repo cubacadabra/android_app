@@ -39,6 +39,8 @@ internal object NativeEngine {
     external fun nativeStep(engine: Long, delta: Float)
     external fun nativeReadFrame(engine: Long): FloatArray
     external fun nativeSetRemotePlayers(engine: Long, players: FloatArray)
+    external fun nativeApplyRemoteUpdate(engine: Long, update: ByteArray): Boolean
+    external fun nativeResetRemoteSession(engine: Long)
     external fun nativeCreateRenderer(engine: Long, surface: Surface, width: Float, height: Float): Long
     external fun nativeResizeRenderer(renderer: Long, width: Float, height: Float)
     external fun nativeDrawRenderer(renderer: Long, engine: Long)
@@ -46,6 +48,8 @@ internal object NativeEngine {
     external fun nativeSnapshotLength(): Int
     external fun nativeSettingsRoomState(engine: Long): Int
     external fun nativeSetUsername(engine: Long, username: ByteArray): Boolean
+    external fun nativeSetLocalAppearance(engine: Long, appearance: ByteArray): Boolean
+    external fun nativeAppearanceRevision(engine: Long): Int
     external fun nativeStartWorld(engine: Long, world: Int): Boolean
     external fun nativeReconcilePlayer(engine: Long, x: Float, y: Float, z: Float, yaw: Float)
     external fun nativeSetBuildBlockCount(engine: Long, count: Int)

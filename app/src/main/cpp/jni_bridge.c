@@ -38,6 +38,8 @@ extern uintptr_t engine_local_agent_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_remote_player_count(const CubacadabraEngine *engine);
 extern void engine_set_remote_player_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_remote_player(CubacadabraEngine *, uintptr_t, float, float, float, float, uint8_t, uint8_t);
+extern uint8_t engine_apply_remote_update_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
+extern void engine_reset_remote_session(CubacadabraEngine *);
 extern uintptr_t engine_launch_pad_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_launch_pad_occupants(const CubacadabraEngine *engine, uintptr_t);
 extern float engine_launch_pad_seconds(const CubacadabraEngine *engine, uintptr_t);
@@ -47,6 +49,8 @@ extern uint8_t engine_settings_room_state(const CubacadabraEngine *engine);
 extern float engine_camera_yaw(const CubacadabraEngine *engine);
 extern float engine_camera_pitch(const CubacadabraEngine *engine);
 extern float engine_camera_distance(const CubacadabraEngine *engine);
+extern uint8_t engine_set_local_appearance_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
+extern uint32_t engine_appearance_revision(const CubacadabraEngine *);
 extern CubacadabraRenderer *engine_renderer_create(void *, float, float);
 extern void engine_renderer_resize(CubacadabraRenderer *, float, float);
 extern void engine_renderer_sync(CubacadabraRenderer *, const CubacadabraEngine *);
@@ -183,6 +187,25 @@ static void JNICALL nativeSetRemotePlayers(JNIEnv *env, jclass klass, jlong valu
     (*env)->ReleaseFloatArrayElements(env, players, values, JNI_ABORT);
 }
 
+static jboolean JNICALL nativeApplyRemoteUpdate(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
+    (void)klass;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t applied = engine_apply_remote_update_json(
+        engine(value),
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return applied ? JNI_TRUE : JNI_FALSE;
+}
+
+static void JNICALL nativeResetRemoteSession(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    engine_reset_remote_session(engine(value));
+}
+
 static jlong JNICALL nativeCreateRenderer(JNIEnv *env, jclass klass, jlong engineValue, jobject surface, jfloat width, jfloat height) {
     (void)klass; (void)engineValue;
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
@@ -246,6 +269,25 @@ static jboolean JNICALL nativeSetUsername(JNIEnv *env, jclass klass, jlong value
     return engine_load_username_buffer(engine(value));
 }
 
+static jboolean JNICALL nativeSetLocalAppearance(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
+    (void)klass;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t applied = engine_set_local_appearance_json(
+        engine(value),
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return applied ? JNI_TRUE : JNI_FALSE;
+}
+
+static jint JNICALL nativeAppearanceRevision(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    return (jint)engine_appearance_revision(engine(value));
+}
+
 static jboolean JNICALL nativeStartWorld(JNIEnv *env, jclass klass, jlong value, jint world) {
     (void)env; (void)klass;
     return engine_start_world(engine(value), (uintptr_t)(world < 0 ? 0 : world));
@@ -282,6 +324,8 @@ static JNINativeMethod methods[] = {
     {"nativeStep", "(JF)V", (void *)nativeStep},
     {"nativeReadFrame", "(J)[F", (void *)nativeReadFrame},
     {"nativeSetRemotePlayers", "(J[F)V", (void *)nativeSetRemotePlayers},
+    {"nativeApplyRemoteUpdate", "(J[B)Z", (void *)nativeApplyRemoteUpdate},
+    {"nativeResetRemoteSession", "(J)V", (void *)nativeResetRemoteSession},
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
@@ -289,6 +333,8 @@ static JNINativeMethod methods[] = {
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},
     {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
     {"nativeSetUsername", "(J[B)Z", (void *)nativeSetUsername},
+    {"nativeSetLocalAppearance", "(J[B)Z", (void *)nativeSetLocalAppearance},
+    {"nativeAppearanceRevision", "(J)I", (void *)nativeAppearanceRevision},
     {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
     {"nativeReconcilePlayer", "(JFFFF)V", (void *)nativeReconcilePlayer},
     {"nativeSetBuildBlockCount", "(JI)V", (void *)nativeSetBuildBlockCount},

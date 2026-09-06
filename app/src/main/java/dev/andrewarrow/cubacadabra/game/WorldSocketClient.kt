@@ -19,20 +19,38 @@ enum class WorldConnectionState(val label: String) {
     CONNECTING("CONNECTING"), CONNECTED("CLOUD LIVE"), RECONNECTING("RECONNECTING"), DISCONNECTED("OFFLINE")
 }
 
-data class RemotePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
+data class RemotePlayer(
+    val position: Vec3,
+    val yaw: Float,
+    val moving: Boolean,
+    val sprinting: Boolean,
+    val generation: Int = 0,
+    val motionSequence: Long = 0L,
+)
 data class PresenceEvent(
     val type: String,
     val playerId: String,
     val username: String? = null,
     val userId: String? = null,
+    val generation: Int = 0,
+    val appearance: JSONObject? = null,
 )
-data class SessionEvent(val playerId: String, val username: String?, val hasUsername: Boolean, val loggedIn: Boolean, val authenticated: Boolean)
+data class SessionEvent(
+    val playerId: String,
+    val username: String?,
+    val hasUsername: Boolean,
+    val loggedIn: Boolean,
+    val authenticated: Boolean,
+    val appearance: JSONObject? = null,
+)
 data class UsernameEvent(val type: String, val username: String?, val code: String?)
 data class MovementEvent(
     val playerId: String,
     val player: RemotePlayer,
     val isSelf: Boolean = false,
     val corrected: Boolean = false,
+    val generation: Int = 0,
+    val motionSequence: Long = 0L,
 )
 data class BuildBlock(val id: String, val x: Float, val y: Float, val z: Float, val rotation: Int, val shape: String, val color: String)
 data class ExperienceEvent(
@@ -56,17 +74,19 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private val preferences = context.getSharedPreferences("cubacadabra", Context.MODE_PRIVATE)
-    val playerId = preferences.getString("player-id", null) ?: "android-${UUID.randomUUID()}".also {
+    var playerId = preferences.getString("player-id", null) ?: "android-${UUID.randomUUID()}".also {
         preferences.edit().putString("player-id", it).apply()
     }
+    private set
     var username: String = preferences.getString("username", null)
         ?.takeIf { it.isNotBlank() }
         ?: "Android Player ${playerId.takeLast(4).uppercase()}"
         private set
-    private var pendingUsername = username
+    private var pendingUsername: String? = null
     private var hidden = false
     private var socket: WebSocket? = null
     private var worldId: String? = null
+    private var gameId = "first-game"
     private var stopped = true
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
@@ -101,6 +121,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         onStateChange(WorldConnectionState.DISCONNECTED)
     }
 
+    fun setGameID(nextGameID: String) {
+        val normalized = nextGameID.trim()
+        if (normalized.isNotEmpty()) gameId = normalized
+    }
+
     fun sendMove(position: Vec3, yaw: Float, moving: Boolean, sprinting: Boolean) {
         val current = socket ?: return
         val move = SentMove(position, yaw, moving, sprinting)
@@ -122,7 +147,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         val id = worldId ?: return
         if (stopped) return
         notifyState(if (reconnectAttempt == 0) WorldConnectionState.CONNECTING else WorldConnectionState.RECONNECTING)
-        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?client=android&player_id=$playerId"
+        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?client=android&game=$gameId"
         val request = Request.Builder().url(url).apply {
             accessToken?.let { header("Authorization", "Bearer $it") }
         }.build()
@@ -135,8 +160,6 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             Log.d(TAG, "socket open world=$worldId")
             reconnectAttempt = 0
             notifyState(WorldConnectionState.CONNECTED)
-            sendUsername(pendingUsername, webSocket)
-            sendVisibility(webSocket)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -162,12 +185,20 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private fun handle(event: JSONObject) {
         val type = event.optString("type")
         if (type == "session_identity") {
+            event.optString("id").takeIf { it.isNotBlank() }?.let { playerId = it }
+            val sessionUsername = event.optString("username").takeIf { it.isNotBlank() }
+            val pending = pendingUsername
+            if (pending != null
+                && (!event.optBoolean("hasUsername") || sessionUsername != pending)
+            ) sendUsername(pending, socket)
+            socket?.let(::sendVisibility)
             onSession(SessionEvent(
-                playerId = event.optString("id"),
-                username = event.optString("username").takeIf { it.isNotBlank() },
+                playerId = playerId,
+                username = sessionUsername,
                 hasUsername = event.optBoolean("hasUsername"),
                 loggedIn = event.optBoolean("loggedIn", event.optBoolean("authenticated")),
                 authenticated = event.optBoolean("authenticated"),
+                appearance = event.optJSONObject("appearance"),
             ))
             return
         }
@@ -178,7 +209,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
                 pendingUsername = updated
                 preferences.edit().putString("username", updated).apply()
             } else if (type == "username_error") {
-                pendingUsername = username
+                pendingUsername = null
             }
             onUsername(UsernameEvent(type, updated, event.optString("code").takeIf { it.isNotBlank() }))
             return
@@ -227,14 +258,20 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
                 yaw = event.optDouble("yaw").toFloat(),
                 moving = event.optBoolean("moving"),
                 sprinting = event.optBoolean("sprinting"),
-            ), isSelf = id == playerId, corrected = event.optBoolean("corrected")))
-        } else if (type == "player_join" || type == "player_leave" || type == "player_name") {
+                generation = event.optInt("generation", 0),
+                motionSequence = event.optLong("motionSequence", 0L),
+            ), isSelf = id == playerId, corrected = event.optBoolean("corrected"),
+                generation = event.optInt("generation", 0),
+                motionSequence = event.optLong("motionSequence", 0L)))
+        } else if (type == "player_join" || type == "player_leave" || type == "player_name" || type == "appearance") {
             onPresence(
                 PresenceEvent(
                     type = type,
                     playerId = id,
                     username = event.optString("username").takeIf { it.isNotBlank() },
                     userId = event.optString("user_id").takeIf { it.isNotBlank() },
+                    generation = event.optInt("generation", 0),
+                    appearance = event.optJSONObject("appearance"),
                 ),
             )
         }
@@ -268,8 +305,12 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         preferences.edit().putString("username", normalized).apply()
     }
 
-    private fun sendUsername(value: String, webSocket: WebSocket) {
-        if (stopped) return
+    fun clearPendingUsername() {
+        pendingUsername = null
+    }
+
+    private fun sendUsername(value: String, webSocket: WebSocket?) {
+        if (stopped || webSocket == null) return
         webSocket.send(JSONObject().apply {
             put("type", "set_username")
             put("username", value)
