@@ -141,9 +141,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.onUsername = ::handleUsername
         socket.onSession = { event ->
             if (event.playerId == socket.playerId) {
-                if (event.hasUsername) {
+                if (event.hasUsername || !event.loggedIn) {
                     event.username?.takeIf { it.isNotBlank() }?.let { username ->
-                        socket.adoptUsername(username)
+                        if (event.hasUsername) socket.adoptUsername(username)
                         if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
                         update { copy(username = username) }
                     }
@@ -285,7 +285,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshAuthentication() {
         if (engine == 0L) return
         viewModelScope.launch {
-            authentication.restore()?.let(::applyAuthentication) ?: clearAuthentication()
+            authentication.restore()?.let(::applyAuthentication)
+                ?: clearAuthentication(resetGuestIdentity = _state.value.isAuthenticated)
         }
     }
 
@@ -824,7 +825,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         if (isSigningIn) return
         authentication.clearTokens()
-        clearAuthentication()
+        clearAuthentication(resetGuestIdentity = true)
         activityReference?.get()?.let { activity ->
             viewModelScope.launch { googleSignIn.signOut(activity) }
         }
@@ -853,10 +854,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun clearAuthentication() {
+    private fun clearAuthentication(resetGuestIdentity: Boolean = false) {
         accessToken = null
+        if (resetGuestIdentity) socket.resetForGuest()
         socket.clearPendingUsername()
-        update { copy(isAuthenticated = false, authUser = null) }
+        update { copy(isAuthenticated = false, authUser = null, username = socket.username) }
+        if (engine != 0L) NativeEngine.nativeSetUsername(engine, socket.username.toByteArray())
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
         socket.setAccessToken(null)
     }
