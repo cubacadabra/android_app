@@ -124,6 +124,8 @@ private fun HomeMenu(
     onUsername: () -> Unit,
     onSafety: () -> Unit,
 ) {
+    var showingLogoutConfirmation by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -179,7 +181,33 @@ private fun HomeMenu(
                 MenuDivider()
                 MenuRow("!", "Block or unblock players", "Players & safety", onSafety)
             }
+            if (state.isAuthenticated) {
+                LogoutMenuRow(onClick = { showingLogoutConfirmation = true })
+            }
         }
+    }
+
+    if (showingLogoutConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showingLogoutConfirmation = false },
+            title = { Text("Log out of cubacadabra?") },
+            text = { Text("You can sign in again whenever you are ready.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showingLogoutConfirmation = false
+                        model.signOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                ) { Text("LOG OUT") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showingLogoutConfirmation = false }) { Text("CANCEL") }
+            },
+        )
     }
 }
 
@@ -237,6 +265,23 @@ private fun MenuRow(symbol: String, title: String, detail: String, onClick: () -
             Text(detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(.68f))
         }
         Text("›", fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+    }
+}
+
+@Composable
+private fun LogoutMenuRow(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 22.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp)
+            .heightIn(min = 52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text("↪", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.width(32.dp))
+        Text("Log out", color = MaterialTheme.colorScheme.error, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

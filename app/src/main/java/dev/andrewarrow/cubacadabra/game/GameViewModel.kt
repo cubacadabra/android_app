@@ -821,7 +821,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(TAG, "main-menu transition complete previousWorld=$previousWorldId movedToLobby=$movedToLobby isMainMenu=${_state.value.isMainMenu}")
     }
 
-    private fun signOut() {
+    fun signOut() {
         if (isSigningIn) return
         authentication.clearTokens()
         clearAuthentication()
