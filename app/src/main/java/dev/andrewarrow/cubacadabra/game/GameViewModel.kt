@@ -133,6 +133,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         } }
         socket.onExperience = ::handleExperience
+        socket.onGameMessage = { data ->
+            if (engine != 0L) NativeEngine.nativeReceiveNetworkMessage(engine, data)
+        }
         load()
     }
 
@@ -257,6 +260,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (settingsOpen) 0f else lookX, if (settingsOpen) 0f else lookY, if (settingsOpen) 0f else zoomDelta)
         jumpQueued = false; lookX = 0f; lookY = 0f; zoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
+        flushNetworkMessages(currentEngine)
         handleUiEvents(currentEngine)
         val nextFrame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()
         updateSettingsRoomState(NativeEngine.nativeSettingsRoomState(currentEngine))
@@ -271,6 +275,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(frame = nextFrame) }
         if (_state.value.worldId != "settings") {
             socket.sendMove(nextFrame.player.position, nextFrame.player.yaw, nextFrame.player.moving, nextFrame.player.sprinting)
+        }
+    }
+
+    private fun flushNetworkMessages(currentEngine: Long) {
+        while (true) {
+            val data = NativeEngine.nativePollNetworkMessage(currentEngine) ?: break
+            val message = runCatching { JSONObject(String(data, StandardCharsets.UTF_8)) }.getOrNull() ?: continue
+            val channel = message.optString("channel").takeIf { it.isNotEmpty() } ?: continue
+            val payload = JSONObject().apply {
+                put("channel", channel)
+                if (message.has("payload")) put("payload", message.get("payload"))
+            }
+            socket.sendExperience(
+                if (message.optBoolean("retained", false)) "game_state_set" else "game_message",
+                payload,
+            )
         }
     }
 

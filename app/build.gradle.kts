@@ -42,6 +42,10 @@ abstract class BuildGamePackageTask : Exec() {
 
 val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") {
     outputDirectory.set(layout.buildDirectory.dir("generated/game-assets"))
+    // The sibling game projects are intentionally outside this repository and
+    // are edited during development. Always rebuild their generated package
+    // so Android Studio cannot keep an older Luau bundle in the APK.
+    outputs.upToDateWhen { false }
     inputs.files(
         fileTree(defaultGameRoot) { exclude("build/**") },
         fileTree(secondGameRoot) { exclude("build/**") },

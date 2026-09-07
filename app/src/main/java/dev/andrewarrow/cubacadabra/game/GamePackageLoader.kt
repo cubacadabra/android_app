@@ -2,6 +2,7 @@ package dev.andrewarrow.cubacadabra.game
 
 import android.content.Context
 import android.util.Log
+import dev.andrewarrow.cubacadabra.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -26,6 +27,14 @@ class GamePackageLoader(context: Context) {
     private val maximumScriptBytes = 512 * 1024
 
     suspend fun load(gameID: String = "first-game"): LoadedGamePackage = withContext(Dispatchers.IO) {
+        if (BuildConfig.DEBUG) {
+            // The Android build assembles the sibling game project into the
+            // APK. Prefer that package during local development so source
+            // edits are never hidden by an older cached package.
+            return@withContext loadBundledPackage(gameID).also {
+                Log.d(TAG, "package load game=$gameID selected=bundled-debug")
+            }
+        }
         val cached = cachedPackage(gameID)
         if (cached != null) {
             Log.d(TAG, "package load game=$gameID selected=cached")

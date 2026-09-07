@@ -43,11 +43,11 @@ object GameCatalog {
 data class LaunchRoute(val destinationWorld: String, val authoritative: Boolean = false)
 data class SceneDefinition(val eyebrow: String, val title: String, val description: String, val maxPlayers: Int)
 data class WorldSettings(
-    val groundSize: Float,
-    val gridSize: Float,
-    val gridDivisions: Int,
-    val spawn: List<Float>,
-    val showSpawnPad: Boolean,
+    val groundSize: Float = 120f,
+    val gridSize: Float = 112f,
+    val gridDivisions: Int = 28,
+    val spawn: List<Float> = listOf(0f, 0f, 0f),
+    val showSpawnPad: Boolean = true,
 )
 data class LaunchPadDefinition(
     val id: String,
@@ -62,11 +62,11 @@ data class LaunchPadDefinition(
 )
 data class BlockDefinition(val position: List<Float>, val size: List<Float>, val color: String, val outline: Boolean)
 data class WorldDefinition(
-    val scene: SceneDefinition,
-    val palette: Map<String, String>,
-    val world: WorldSettings,
-    val launchPads: List<LaunchPadDefinition>,
-    val blocks: List<BlockDefinition>,
+    val scene: SceneDefinition? = null,
+    val palette: Map<String, String> = emptyMap(),
+    val world: WorldSettings = WorldSettings(),
+    val launchPads: List<LaunchPadDefinition> = emptyList(),
+    val blocks: List<BlockDefinition> = emptyList(),
 )
 
 data class LoadedGamePackage(val packageData: GamePackage, val manifest: String, val script: String)

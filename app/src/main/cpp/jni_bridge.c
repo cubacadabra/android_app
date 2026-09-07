@@ -40,6 +40,10 @@ extern void engine_set_remote_player_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_remote_player(CubacadabraEngine *, uintptr_t, float, float, float, float, uint8_t, uint8_t);
 extern uint8_t engine_apply_remote_update_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
 extern void engine_reset_remote_session(CubacadabraEngine *);
+extern uint8_t engine_receive_network_message_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
+extern uint8_t engine_network_poll_message(CubacadabraEngine *);
+extern const uint8_t *engine_network_message_ptr(const CubacadabraEngine *);
+extern uintptr_t engine_network_message_len(const CubacadabraEngine *);
 extern uintptr_t engine_launch_pad_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_launch_pad_occupants(const CubacadabraEngine *engine, uintptr_t);
 extern float engine_launch_pad_seconds(const CubacadabraEngine *engine, uintptr_t);
@@ -206,6 +210,31 @@ static void JNICALL nativeResetRemoteSession(JNIEnv *env, jclass klass, jlong va
     engine_reset_remote_session(engine(value));
 }
 
+static jboolean JNICALL nativeReceiveNetworkMessage(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
+    (void)klass;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t accepted = engine_receive_network_message_json(
+        engine(value),
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return accepted ? JNI_TRUE : JNI_FALSE;
+}
+
+static jbyteArray JNICALL nativePollNetworkMessage(JNIEnv *env, jclass klass, jlong value) {
+    (void)klass;
+    if (!engine_network_poll_message(engine(value))) return NULL;
+    const uintptr_t length = engine_network_message_len(engine(value));
+    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
+    if (!result || length == 0) return result;
+    const uint8_t *source = engine_network_message_ptr(engine(value));
+    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
+    return result;
+}
+
 static jlong JNICALL nativeCreateRenderer(JNIEnv *env, jclass klass, jlong engineValue, jobject surface, jfloat width, jfloat height) {
     (void)klass; (void)engineValue;
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
@@ -326,6 +355,8 @@ static JNINativeMethod methods[] = {
     {"nativeSetRemotePlayers", "(J[F)V", (void *)nativeSetRemotePlayers},
     {"nativeApplyRemoteUpdate", "(J[B)Z", (void *)nativeApplyRemoteUpdate},
     {"nativeResetRemoteSession", "(J)V", (void *)nativeResetRemoteSession},
+    {"nativeReceiveNetworkMessage", "(J[B)Z", (void *)nativeReceiveNetworkMessage},
+    {"nativePollNetworkMessage", "(J)[B", (void *)nativePollNetworkMessage},
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},

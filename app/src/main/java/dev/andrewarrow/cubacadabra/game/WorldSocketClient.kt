@@ -7,6 +7,7 @@ import okhttp3.Request
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -53,6 +54,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     var onMovement: (MovementEvent) -> Unit = {}
     var onUsername: (UsernameEvent) -> Unit = {}
     var onExperience: (ExperienceEvent) -> Unit = {}
+    var onGameMessage: (ByteArray) -> Unit = {}
 
     fun connect(nextWorldId: String) {
         val normalized = nextWorldId.trim()
@@ -168,6 +170,10 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         }
         if (type == "experience_state" || type == "experience_launch") {
             onExperience(event.toExperienceEvent(type))
+            return
+        }
+        if (type == "game_state" || type == "game_message") {
+            onGameMessage(event.toString().toByteArray(StandardCharsets.UTF_8))
             return
         }
         val id = event.optString("id")
