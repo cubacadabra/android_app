@@ -28,10 +28,13 @@ Android Studio must have an NDK installed. The build script discovers it from
 the SDK path in `local.properties`.
 
 Gradle builds the sibling game source with the shared `../tools` CLI and
-includes the generated `game-package/` directory in the APK. At runtime,
-Android starts from that bundled package or a validated cached package, then
-refreshes `manifest.json` and `game.luau` from the configured host for the next
-launch.
+includes the generated `game-package/` directory in the APK. Debug builds
+always start from that bundle. Release builds use a validated cached package
+only when its manifest has a semantic `version` strictly newer than the
+bundled manifest; an equal, older, or unversioned cache cannot mask a package
+shipped in an app update. The app refreshes `manifest.json` and `game.luau`
+from the configured host for a future launch, so remotely published package
+updates must increment their manifest version.
 
 For local services, the Debug defaults match iOS:
 

@@ -39,15 +39,23 @@ class GamePackageLoader(context: Context) {
                 Log.d(TAG, "package load game=$gameID selected=bundled-debug")
             }
         }
-        val cached = cachedPackage(gameID)
-        if (cached != null) {
-            Log.d(TAG, "package load game=$gameID selected=cached")
-            return@withContext cached
-        }
         val bundled = runCatching { loadBundledPackage(gameID) }.getOrNull()
         if (bundled != null) {
+            val cached = cachedPackage(gameID)
+            if (cached?.version != null &&
+                bundled.version != null &&
+                cached.version > bundled.version
+            ) {
+                Log.d(TAG, "package load game=$gameID selected=cached-newer")
+                return@withContext cached
+            }
             Log.d(TAG, "package load game=$gameID selected=bundled")
             return@withContext bundled
+        }
+        val cached = cachedPackage(gameID)
+        if (cached != null) {
+            Log.d(TAG, "package load game=$gameID selected=cached-no-bundle")
+            return@withContext cached
         }
         val base = remoteBaseUrl(gameID)
         val downloaded = makePackage(
@@ -125,12 +133,19 @@ class GamePackageLoader(context: Context) {
         val manifest = decodeUtf8(manifestBytes)
         val script = decodeUtf8(scriptBytes)
         if (script.isEmpty()) throw GamePackageException("The Luau game script is empty.")
-        val packageData = parsePackage(JSONObject(manifest))
+        val manifestObject = JSONObject(manifest)
+        val packageData = parsePackage(manifestObject)
         if (packageData.worldDefinition(packageData.initialWorld) == null) {
             throw GamePackageException("The game world \"${packageData.initialWorld}\" was not found.")
         }
         val audioAssets = normalizeAudioAssets(packageData.assets?.audio, audioBaseUrl, bundledDirectory)
-        return LoadedGamePackage(packageData, manifest, script, audioAssets)
+        return LoadedGamePackage(
+            packageData,
+            manifest,
+            script,
+            audioAssets,
+            GamePackageVersion.parse(manifestObject.optString("version", null)),
+        )
     }
 
     private fun normalizeAudioAssets(

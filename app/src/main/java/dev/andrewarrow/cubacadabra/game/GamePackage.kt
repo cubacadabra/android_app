@@ -79,7 +79,43 @@ data class LoadedGamePackage(
     val manifest: String,
     val script: String,
     val audioAssets: Map<String, LoadedGameAudioAsset>,
+    val version: GamePackageVersion?,
 )
+
+data class GamePackageVersion(
+    val major: Int,
+    val minor: Int,
+    val patch: Int,
+    val prerelease: String?,
+) : Comparable<GamePackageVersion> {
+    override fun compareTo(other: GamePackageVersion): Int {
+        compareValues(major, other.major).takeIf { it != 0 }?.let { return it }
+        compareValues(minor, other.minor).takeIf { it != 0 }?.let { return it }
+        compareValues(patch, other.patch).takeIf { it != 0 }?.let { return it }
+        return when {
+            prerelease == null && other.prerelease == null -> 0
+            prerelease == null -> 1
+            other.prerelease == null -> -1
+            else -> prerelease.compareTo(other.prerelease)
+        }
+    }
+
+    companion object {
+        fun parse(source: String?): GamePackageVersion? {
+            if (source.isNullOrEmpty()) return null
+            val withoutBuild = source.substringBefore('+')
+            val core = withoutBuild.substringBefore('-').split('.')
+            if (core.size != 3) return null
+            val major = core[0].toIntOrNull()?.takeIf { it >= 0 } ?: return null
+            val minor = core[1].toIntOrNull()?.takeIf { it >= 0 } ?: return null
+            val patch = core[2].toIntOrNull()?.takeIf { it >= 0 } ?: return null
+            val prerelease = withoutBuild
+                .substringAfter('-', missingDelimiterValue = "")
+                .ifEmpty { null }
+            return GamePackageVersion(major, minor, patch, prerelease)
+        }
+    }
+}
 
 data class LoadedGameAudioAsset(
     val volume: Float,
