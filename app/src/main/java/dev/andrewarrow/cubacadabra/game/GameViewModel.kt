@@ -45,58 +45,6 @@ private data class RemotePlayerState(
     val appearance: JSONObject? = null,
 )
 
-data class Vec3(val x: Float, val y: Float, val z: Float)
-data class EnginePlayer(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean)
-data class EnginePad(val occupants: Int, val seconds: Float, val phase: Int)
-data class EngineFrame(
-    val player: EnginePlayer,
-    val agents: Int,
-    val remotePlayers: Int,
-    val pads: List<EnginePad>,
-    val activeWorldIndex: Int,
-    val cameraYaw: Float,
-)
-
-data class PresenceNotice(val message: String, val joined: Boolean, val id: Long = System.nanoTime())
-data class RemotePlayerSummary(val id: String, val username: String, val playerId: String)
-data class GameUiState(
-    val isLoading: Boolean = true,
-    val errorMessage: String? = null,
-    val isMainMenu: Boolean = false,
-    val packageData: GamePackage? = null,
-    val worldId: String = "lobby",
-    val frame: EngineFrame? = null,
-    val connectionState: WorldConnectionState = WorldConnectionState.DISCONNECTED,
-    val presenceNotice: PresenceNotice? = null,
-    val username: String = "",
-    val usernameStatus: String = "Choose a name other players can find you by.",
-    val settingsRoomState: Int = 0,
-    val usernameEditorOpen: Boolean = false,
-    val sprinting: Boolean = false,
-    val buildPrompt: String = "",
-    val buildPhase: String = "build",
-    val buildBlocks: List<BuildBlock> = emptyList(),
-    val buildTool: String = "place",
-    val buildShape: String = "cube",
-    val buildColor: String = "coral",
-    val lobbyLaunchStartsAt: Long? = null,
-    val lobbyLaunchClockOffset: Long = 0L,
-    val isAuthenticated: Boolean = false,
-    val authUser: AppAuthUser? = null,
-    val loginDialogOpen: Boolean = false,
-    val loginInProgress: Boolean = false,
-    val loginErrorMessage: String? = null,
-    val selectedGameID: String = "first-game",
-    val isSelectingGame: Boolean = false,
-    val selectingGameID: String? = null,
-    val gameSelectionError: String? = null,
-    val profileUsernameSaving: Boolean = false,
-    val profileUsernameMessage: String? = null,
-    val profileUsernameMessageIsError: Boolean = false,
-    val blockedPlayerIDs: Set<String> = emptySet(),
-    val activePlayers: List<RemotePlayerSummary> = emptyList(),
-)
-
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val TAG = "GameViewModel"
@@ -1107,28 +1055,4 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (engine != 0L) NativeEngine.nativeDestroy(engine)
         super.onCleared()
     }
-}
-
-private fun FloatArray.decodeFrame(): EngineFrame {
-    val snapshotLength = NativeEngine.nativeSnapshotLength()
-    val metadata = snapshotLength
-    val padCount = getOrElse(metadata + 3) { 0f }.toInt()
-    val pads = (0 until padCount).map { index ->
-        val offset = metadata + 8 + index * 3
-        EnginePad(getOrElse(offset) { 0f }.toInt(), getOrElse(offset + 1) { 0f }, getOrElse(offset + 2) { 0f }.toInt())
-    }
-    return EngineFrame(
-        player = EnginePlayer(Vec3(this[0], this[1], this[2]), this[3], this[6] > 0.5f, this[7] > 0.5f),
-        agents = getOrElse(metadata) { 0f }.toInt(),
-        remotePlayers = getOrElse(metadata + 2) { 0f }.toInt(),
-        pads = pads,
-        activeWorldIndex = getOrElse(metadata + 4) { 0f }.toInt(),
-        cameraYaw = getOrElse(metadata + 5) { 0f },
-    )
-}
-
-private fun padStatus(pad: EnginePad?) = when {
-    pad == null -> "READY"
-    pad.seconds > 0f -> "${pad.occupants} · ${pad.seconds.toInt()}s"
-    else -> "${pad.occupants} READY"
 }

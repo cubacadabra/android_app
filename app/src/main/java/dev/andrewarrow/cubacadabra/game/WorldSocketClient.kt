@@ -15,56 +15,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class WorldConnectionState(val label: String) {
-    CONNECTING("CONNECTING"), CONNECTED("CLOUD LIVE"), RECONNECTING("RECONNECTING"), DISCONNECTED("OFFLINE")
-}
-
-data class RemotePlayer(
-    val position: Vec3,
-    val yaw: Float,
-    val moving: Boolean,
-    val sprinting: Boolean,
-    val generation: Int = 0,
-    val motionSequence: Long = 0L,
-)
-data class PresenceEvent(
-    val type: String,
-    val playerId: String,
-    val username: String? = null,
-    val userId: String? = null,
-    val generation: Int = 0,
-    val appearance: JSONObject? = null,
-)
-data class SessionEvent(
-    val playerId: String,
-    val username: String?,
-    val hasUsername: Boolean,
-    val loggedIn: Boolean,
-    val authenticated: Boolean,
-    val appearance: JSONObject? = null,
-)
-data class UsernameEvent(val type: String, val username: String?, val code: String?)
-data class MovementEvent(
-    val playerId: String,
-    val player: RemotePlayer,
-    val isSelf: Boolean = false,
-    val corrected: Boolean = false,
-    val generation: Int = 0,
-    val motionSequence: Long = 0L,
-)
-data class BuildBlock(val id: String, val x: Float, val y: Float, val z: Float, val rotation: Int, val shape: String, val color: String)
-data class ExperienceEvent(
-    val type: String,
-    val kind: String? = null,
-    val phase: String? = null,
-    val prompt: String? = null,
-    val sessionWorldId: String? = null,
-    val playerIds: List<String> = emptyList(),
-    val startsAt: Long? = null,
-    val serverNow: Long? = null,
-    val blocks: List<BuildBlock> = emptyList(),
-)
-
 class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     companion object {
         private const val TAG = "WorldSocketClient"
@@ -201,14 +151,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
                 && (!event.optBoolean("hasUsername") || sessionUsername != pending)
             ) sendUsername(pending, source)
             sendVisibility(source)
-            onSession(SessionEvent(
-                playerId = playerId,
-                username = sessionUsername,
-                hasUsername = event.optBoolean("hasUsername"),
-                loggedIn = loggedIn,
-                authenticated = event.optBoolean("authenticated"),
-                appearance = event.optJSONObject("appearance"),
-            ))
+            onSession(event.toSessionEvent(playerId))
             return
         }
         if (type == "username_updated" || type == "username_error") {
@@ -224,65 +167,15 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             return
         }
         if (type == "experience_state" || type == "experience_launch") {
-            val blocks = buildList {
-                val values = event.optJSONArray("blocks") ?: return@buildList
-                for (index in 0 until values.length()) {
-                    val block = values.optJSONObject(index) ?: continue
-                    add(BuildBlock(
-                        id = block.optString("id"),
-                        x = block.optDouble("x").toFloat(),
-                        y = block.optDouble("y").toFloat(),
-                        z = block.optDouble("z").toFloat(),
-                        rotation = block.optInt("rotation", 0),
-                        shape = block.optString("shape", "cube"),
-                        color = block.optString("color", "coral"),
-                    ))
-                }
-            }
-            val playerIds = buildList {
-                val values = event.optJSONArray("playerIds") ?: return@buildList
-                for (index in 0 until values.length()) values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
-            }
-            onExperience(ExperienceEvent(
-                type = type,
-                kind = event.optString("kind").takeIf { it.isNotBlank() },
-                phase = event.optString("phase").takeIf { it.isNotBlank() },
-                prompt = event.optString("prompt").takeIf { it.isNotBlank() },
-                sessionWorldId = event.optString("sessionWorldId").takeIf { it.isNotBlank() },
-                playerIds = playerIds,
-                startsAt = (event.optJSONObject("launch") ?: event).optLong("startsAt").takeIf {
-                    (event.optJSONObject("launch") ?: event).has("startsAt")
-                        && !(event.optJSONObject("launch") ?: event).isNull("startsAt")
-                },
-                serverNow = event.optLong("serverNow").takeIf { event.has("serverNow") },
-                blocks = blocks,
-            ))
+            onExperience(event.toExperienceEvent(type))
             return
         }
         val id = event.optString("id")
         if (id.isEmpty()) return
         if (type == "move") {
-            onMovement(MovementEvent(id, RemotePlayer(
-                position = Vec3(event.optDouble("x").toFloat(), event.optDouble("y").toFloat(), event.optDouble("z").toFloat()),
-                yaw = event.optDouble("yaw").toFloat(),
-                moving = event.optBoolean("moving"),
-                sprinting = event.optBoolean("sprinting"),
-                generation = event.optInt("generation", 0),
-                motionSequence = event.optLong("motionSequence", 0L),
-            ), isSelf = id == playerId, corrected = event.optBoolean("corrected"),
-                generation = event.optInt("generation", 0),
-                motionSequence = event.optLong("motionSequence", 0L)))
+            onMovement(event.toMovementEvent(id, playerId))
         } else if (type == "player_join" || type == "player_leave" || type == "player_name" || type == "appearance") {
-            onPresence(
-                PresenceEvent(
-                    type = type,
-                    playerId = id,
-                    username = event.optString("username").takeIf { it.isNotBlank() },
-                    userId = event.optString("user_id").takeIf { it.isNotBlank() },
-                    generation = event.optInt("generation", 0),
-                    appearance = event.optJSONObject("appearance"),
-                ),
-            )
+            onPresence(event.toPresenceEvent(type, id))
         }
     }
 
