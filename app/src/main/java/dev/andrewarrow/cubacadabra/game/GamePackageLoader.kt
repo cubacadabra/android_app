@@ -17,8 +17,12 @@ class GamePackageLoader(context: Context) {
         // The generated Luau package format changed with the Build Together
         // UI. Keep the old cache from overriding the corrected bundle after
         // an app update, matching the iOS loader's versioned cache keys.
-        const val CACHED_MANIFEST_KEY = "manifest.v2"
-        const val CACHED_SCRIPT_KEY = "script.v2"
+        const val CACHE_VERSION = "v4"
+        val AUDIO_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
+        val AUDIO_PATH_PATTERN = Regex(
+            "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wav$",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private val applicationContext = context.applicationContext
@@ -49,6 +53,7 @@ class GamePackageLoader(context: Context) {
         val downloaded = makePackage(
             fetch(URL(base + "manifest.json"), maximumManifestBytes),
             fetch(URL(base + "game.luau"), maximumScriptBytes),
+            audioBaseUrl = base,
         )
         preferences.edit()
             .putString(manifestKey(gameID), downloaded.manifest)
@@ -64,6 +69,7 @@ class GamePackageLoader(context: Context) {
             val downloadedPackage = makePackage(
                 fetch(URL(base + "manifest.json"), maximumManifestBytes),
                 fetch(URL(base + "game.luau"), maximumScriptBytes),
+                audioBaseUrl = base,
             )
             preferences.edit()
                 .putString(manifestKey(gameID), downloadedPackage.manifest)
@@ -77,13 +83,15 @@ class GamePackageLoader(context: Context) {
     }
 
     private fun cachedPackage(gameID: String): LoadedGamePackage? {
-        val manifest = preferences.getString(manifestKey(gameID), null)
-            ?: if (gameID == "first-game") preferences.getString(CACHED_MANIFEST_KEY, null).orEmpty() else ""
-        val script = preferences.getString(scriptKey(gameID), null)
-            ?: if (gameID == "first-game") preferences.getString(CACHED_SCRIPT_KEY, null).orEmpty() else ""
+        val manifest = preferences.getString(manifestKey(gameID), null).orEmpty()
+        val script = preferences.getString(scriptKey(gameID), null).orEmpty()
         if (manifest.isEmpty() || script.isEmpty()) return null
         return runCatching {
-            makePackage(manifest.toByteArray(Charsets.UTF_8), script.toByteArray(Charsets.UTF_8))
+            makePackage(
+                manifest.toByteArray(Charsets.UTF_8),
+                script.toByteArray(Charsets.UTF_8),
+                audioBaseUrl = remoteBaseUrl(gameID),
+            )
         }.getOrNull()
     }
 
@@ -93,7 +101,7 @@ class GamePackageLoader(context: Context) {
         val scriptPath = "$directory/game.luau"
         val manifestBytes = applicationContext.assets.open(manifestPath).use { it.readBytes() }
         val scriptBytes = applicationContext.assets.open(scriptPath).use { it.readBytes() }
-        return makePackage(manifestBytes, scriptBytes)
+        return makePackage(manifestBytes, scriptBytes, bundledDirectory = directory)
     }
 
     private fun remoteBaseUrl(gameID: String): String {
@@ -105,10 +113,15 @@ class GamePackageLoader(context: Context) {
         return "${base.substring(0, parentPathEnd)}/$gameID/"
     }
 
-    private fun manifestKey(gameID: String) = "manifest.v3.$gameID"
-    private fun scriptKey(gameID: String) = "script.v3.$gameID"
+    private fun manifestKey(gameID: String) = "manifest.$CACHE_VERSION.$gameID"
+    private fun scriptKey(gameID: String) = "script.$CACHE_VERSION.$gameID"
 
-    private fun makePackage(manifestBytes: ByteArray, scriptBytes: ByteArray): LoadedGamePackage {
+    private fun makePackage(
+        manifestBytes: ByteArray,
+        scriptBytes: ByteArray,
+        audioBaseUrl: String? = null,
+        bundledDirectory: String? = null,
+    ): LoadedGamePackage {
         val manifest = decodeUtf8(manifestBytes)
         val script = decodeUtf8(scriptBytes)
         if (script.isEmpty()) throw GamePackageException("The Luau game script is empty.")
@@ -116,7 +129,40 @@ class GamePackageLoader(context: Context) {
         if (packageData.worldDefinition(packageData.initialWorld) == null) {
             throw GamePackageException("The game world \"${packageData.initialWorld}\" was not found.")
         }
-        return LoadedGamePackage(packageData, manifest, script)
+        val audioAssets = normalizeAudioAssets(packageData.assets?.audio, audioBaseUrl, bundledDirectory)
+        return LoadedGamePackage(packageData, manifest, script, audioAssets)
+    }
+
+    private fun normalizeAudioAssets(
+        definitions: Map<String, GameAudioAssetDefinition>?,
+        audioBaseUrl: String?,
+        bundledDirectory: String?,
+    ): Map<String, LoadedGameAudioAsset> = buildMap {
+        definitions.orEmpty().forEach { (id, definition) ->
+            if (!AUDIO_ID_PATTERN.matches(id) || !AUDIO_PATH_PATTERN.matches(definition.path)) {
+                throw GamePackageException("The game audio asset \"$id\" is invalid.")
+            }
+            if (!definition.volume.isFinite() || definition.volume !in 0f..1f) {
+                throw GamePackageException("The game audio asset \"$id\" is invalid.")
+            }
+            when {
+                bundledDirectory != null -> put(
+                    id,
+                    LoadedGameAudioAsset(
+                        volume = definition.volume,
+                        bundledAssetPath = "$bundledDirectory/${definition.path}",
+                    ),
+                )
+                audioBaseUrl != null -> {
+                    val url = runCatching { URL(audioBaseUrl + definition.path) }.getOrNull()
+                    if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                        throw GamePackageException("The game audio asset \"$id\" is invalid.")
+                    }
+                    put(id, LoadedGameAudioAsset(volume = definition.volume, url = url.toString()))
+                }
+                else -> throw GamePackageException("The game audio asset \"$id\" is invalid.")
+            }
+        }
     }
 
     private fun decodeUtf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder()

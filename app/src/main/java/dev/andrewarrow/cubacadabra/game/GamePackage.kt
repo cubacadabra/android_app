@@ -6,6 +6,7 @@ data class GamePackage(
     val startWorld: String,
     val lobby: Boolean,
     val launch: LaunchRoute,
+    val assets: GameAssets?,
     val scene: SceneDefinition,
     val palette: Map<String, String>,
     val world: WorldSettings,
@@ -26,6 +27,10 @@ data class GamePackage(
 
     fun runtimeWorldIds(): List<String> = listOf("lobby") + worlds.keys.sorted()
 }
+
+data class GameAssets(val audio: Map<String, GameAudioAssetDefinition>?)
+
+data class GameAudioAssetDefinition(val path: String, val volume: Float)
 
 data class GameCatalogEntry(
     val id: String,
@@ -69,7 +74,18 @@ data class WorldDefinition(
     val blocks: List<BlockDefinition> = emptyList(),
 )
 
-data class LoadedGamePackage(val packageData: GamePackage, val manifest: String, val script: String)
+data class LoadedGamePackage(
+    val packageData: GamePackage,
+    val manifest: String,
+    val script: String,
+    val audioAssets: Map<String, LoadedGameAudioAsset>,
+)
+
+data class LoadedGameAudioAsset(
+    val volume: Float,
+    val bundledAssetPath: String? = null,
+    val url: String? = null,
+)
 
 class GamePackageException(message: String) : Exception(message)
 

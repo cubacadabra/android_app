@@ -25,6 +25,11 @@ class MainActivity : ComponentActivity() {
         if (::gameModel.isInitialized) gameModel.refreshAuthentication()
     }
 
+    override fun onStop() {
+        if (::gameModel.isInitialized) gameModel.pauseGame()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         if (::gameModel.isInitialized) gameModel.detachActivity(this)
         super.onDestroy()

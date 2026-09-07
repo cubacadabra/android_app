@@ -43,6 +43,7 @@ internal object NativeEngine {
     external fun nativeResetRemoteSession(engine: Long)
     external fun nativeReceiveNetworkMessage(engine: Long, message: ByteArray): Boolean
     external fun nativePollNetworkMessage(engine: Long): ByteArray?
+    external fun nativePollAudioMessage(engine: Long): ByteArray?
     external fun nativeCreateRenderer(engine: Long, surface: Surface, width: Float, height: Float): Long
     external fun nativeResizeRenderer(renderer: Long, width: Float, height: Float)
     external fun nativeDrawRenderer(renderer: Long, engine: Long)

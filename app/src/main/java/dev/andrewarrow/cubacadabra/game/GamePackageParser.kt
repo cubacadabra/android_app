@@ -12,6 +12,7 @@ internal fun parsePackage(json: JSONObject): GamePackage {
         startWorld = json.getString("startWorld"),
         lobby = json.optBoolean("lobby", true),
         launch = json.getJSONObject("launch").let { LaunchRoute(it.getString("destinationWorld"), it.optBoolean("authoritative", false)) },
+        assets = parseAssets(json.optJSONObject("assets")),
         scene = parseScene(json.getJSONObject("scene")),
         palette = jsonObjectMap(json.optJSONObject("palette")),
         world = parseWorldSettings(json.optJSONObject("world")),
@@ -19,6 +20,23 @@ internal fun parsePackage(json: JSONObject): GamePackage {
         blocks = parseBlocks(json.optJSONArray("blocks")),
         worlds = worlds,
     )
+}
+
+private fun parseAssets(json: JSONObject?): GameAssets? {
+    if (json == null) return null
+    if (!json.has("audio")) return GameAssets(null)
+    if (json.isNull("audio")) throw GamePackageException("The game manifest assets.audio must be an object.")
+    val audioValue = json.getJSONObject("audio")
+    val audio = buildMap {
+        audioValue.keys().forEach { id ->
+            val definition = audioValue.getJSONObject(id)
+            put(id, GameAudioAssetDefinition(
+                path = definition.getString("path"),
+                volume = definition.optDouble("volume", 1.0).toFloat(),
+            ))
+        }
+    }
+    return GameAssets(audio)
 }
 
 private fun parseWorld(json: JSONObject): WorldDefinition = WorldDefinition(

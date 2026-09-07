@@ -44,6 +44,9 @@ extern uint8_t engine_receive_network_message_json(CubacadabraEngine *, const ui
 extern uint8_t engine_network_poll_message(CubacadabraEngine *);
 extern const uint8_t *engine_network_message_ptr(const CubacadabraEngine *);
 extern uintptr_t engine_network_message_len(const CubacadabraEngine *);
+extern uint8_t engine_audio_poll_message(CubacadabraEngine *);
+extern const uint8_t *engine_audio_message_ptr(const CubacadabraEngine *);
+extern uintptr_t engine_audio_message_len(const CubacadabraEngine *);
 extern uintptr_t engine_launch_pad_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_launch_pad_occupants(const CubacadabraEngine *engine, uintptr_t);
 extern float engine_launch_pad_seconds(const CubacadabraEngine *engine, uintptr_t);
@@ -235,6 +238,17 @@ static jbyteArray JNICALL nativePollNetworkMessage(JNIEnv *env, jclass klass, jl
     return result;
 }
 
+static jbyteArray JNICALL nativePollAudioMessage(JNIEnv *env, jclass klass, jlong value) {
+    (void)klass;
+    if (!engine_audio_poll_message(engine(value))) return NULL;
+    const uintptr_t length = engine_audio_message_len(engine(value));
+    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
+    if (!result || length == 0) return result;
+    const uint8_t *source = engine_audio_message_ptr(engine(value));
+    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
+    return result;
+}
+
 static jlong JNICALL nativeCreateRenderer(JNIEnv *env, jclass klass, jlong engineValue, jobject surface, jfloat width, jfloat height) {
     (void)klass; (void)engineValue;
     ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
@@ -357,6 +371,7 @@ static JNINativeMethod methods[] = {
     {"nativeResetRemoteSession", "(J)V", (void *)nativeResetRemoteSession},
     {"nativeReceiveNetworkMessage", "(J[B)Z", (void *)nativeReceiveNetworkMessage},
     {"nativePollNetworkMessage", "(J)[B", (void *)nativePollNetworkMessage},
+    {"nativePollAudioMessage", "(J)[B", (void *)nativePollAudioMessage},
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},

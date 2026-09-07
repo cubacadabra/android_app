@@ -59,6 +59,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
     private val loader = GamePackageLoader(application)
+    private val gameAudio = GameAudio(application)
     private val socket = WorldSocketClient(application, viewModelScope)
     private val authentication = AppAuthenticationService(application)
     private val googleSignIn = NativeGoogleSignInService(application)
@@ -146,6 +147,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val loaded = withContext(Dispatchers.IO) { loader.load("first-game") }
                 val created = createEngine(loaded)
+                gameAudio.configure(loaded.audioAssets)
                 engine = created
                 uiViewport?.let { viewport ->
                     NativeEngine.nativeSetUiViewport(
@@ -217,6 +219,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retry() {
         socket.disconnect()
+        gameAudio.stopAll()
         connectedWorldId = null
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
         renderer = 0
@@ -261,6 +264,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         jumpQueued = false; lookX = 0f; lookY = 0f; zoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
         flushNetworkMessages(currentEngine)
+        flushAudioMessages(currentEngine)
         handleUiEvents(currentEngine)
         val nextFrame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()
         updateSettingsRoomState(NativeEngine.nativeSettingsRoomState(currentEngine))
@@ -291,6 +295,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (message.optBoolean("retained", false)) "game_state_set" else "game_message",
                 payload,
             )
+        }
+    }
+
+    private fun flushAudioMessages(currentEngine: Long) {
+        while (true) {
+            val data = NativeEngine.nativePollAudioMessage(currentEngine) ?: break
+            runCatching {
+                val command = JSONObject(String(data, StandardCharsets.UTF_8))
+                gameAudio.play(
+                    EngineAudioCommand(
+                        type = command.getString("type"),
+                        id = command.getString("id"),
+                        volume = command.optDouble("volume", 1.0).toFloat(),
+                    ),
+                )
+            }.onFailure { error ->
+                Log.w(TAG, "Discarding malformed Rust audio command", error)
+            }
         }
     }
 
@@ -754,6 +776,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         connectWorld(_state.value.worldId)
     }
 
+    fun pauseGame() {
+        gameAudio.stopAll()
+        lastFrameNanos = null
+        forward = 0f
+        strafe = 0f
+        jumpQueued = false
+        lookX = 0f
+        lookY = 0f
+        zoomDelta = 0f
+    }
+
     fun selectGame(gameID: String) {
         if (GameCatalog.available.none { it.id == gameID }) return
         if (_state.value.isSelectingGame) return
@@ -767,6 +800,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val loaded = withContext(Dispatchers.IO) { loader.load(gameID) }
                 val nextEngine = createEngine(loaded)
+                gameAudio.configure(loaded.audioAssets)
                 if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
                 renderer = 0
                 if (engine != 0L) NativeEngine.nativeDestroy(engine)
@@ -821,6 +855,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         strafe = 0f
         jumpQueued = false
         lastFrameNanos = null
+        gameAudio.stopAll()
         pendingSessionWorldId = null
         val packageData = _state.value.packageData
         val returnWorld = if (lobbyEnabled) "lobby" else packageData?.initialWorld
@@ -1112,6 +1147,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         socket.disconnect()
+        gameAudio.stopAll()
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
         if (engine != 0L) NativeEngine.nativeDestroy(engine)
         super.onCleared()
