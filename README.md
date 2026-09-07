@@ -36,9 +36,19 @@ launch.
 For local services, the Debug defaults match iOS:
 
 ```text
-Game package: http://127.0.0.1:5173/games/first-game/
-Backend:      ws://127.0.0.1:8787
+Game package: http://10.0.2.2:5173/games/first-game/
+Backend:      ws://10.0.2.2:8787
 ```
+
+`10.0.2.2` is the Android Studio emulator's alias for the development
+machine's loopback interface. Start the local services normally with
+`npm run dev` in `../backend` and the web dev server in `../web`.
+
+For a physical Android device, or an emulator configured to use the LAN,
+replace `10.0.2.2` with the host's reachable LAN address and start the backend
+and web servers with their LAN commands so they bind to `0.0.0.0`. The device
+and host must be on a routable network, and the macOS firewall must allow ports
+8787 and 5173.
 
 Override either value with Gradle properties when the device is on the LAN:
 

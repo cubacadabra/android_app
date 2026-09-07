@@ -115,8 +115,9 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "http://127.0.0.1:5173/games/first-game/"}\"")
-            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${configuredBackendUrl ?: "ws://127.0.0.1:8787"}\"")
+            // Android Studio's emulator exposes the host loopback interface as 10.0.2.2.
+            buildConfigField("String", "CUBACADABRA_GAME_BASE_URL", "\"${configuredGameBaseUrl ?: "http://10.0.2.2:5173/games/first-game/"}\"")
+            buildConfigField("String", "CUBACADABRA_BACKEND_URL", "\"${configuredBackendUrl ?: "ws://10.0.2.2:8787"}\"")
         }
         release {
             signingConfig = signingConfigs.getByName("debug")
