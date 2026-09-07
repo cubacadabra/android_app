@@ -72,6 +72,28 @@ class AppAuthenticationService(context: Context) {
         }.getOrElse { throw AppAuthException.InvalidResponse(it) }
     }
 
+    suspend fun saveAvatar(bodyID: String): AppProfileUpdateResult {
+        val accessToken = tokenStore.load()?.first ?: throw AppProfileException.Unauthorized
+        val response = request(
+            "auth/avatar",
+            "POST",
+            org.json.JSONObject().put("body_id", bodyID),
+            accessToken,
+        )
+        if (response.statusCode !in 200..299) {
+            val code = runCatching { org.json.JSONObject(response.body).optString("error").takeIf { it.isNotEmpty() } }
+                .getOrNull()
+            throw AppProfileException.Server(response.statusCode, code)
+        }
+        return runCatching {
+            val json = org.json.JSONObject(response.body)
+            AppProfileUpdateResult(
+                user = parseUser(json.getJSONObject("user")),
+                age = if (json.has("age") && !json.isNull("age")) json.getInt("age") else null,
+            )
+        }.getOrElse { throw AppAuthException.InvalidResponse(it) }
+    }
+
     fun clearTokens() = tokenStore.clear()
 
     private suspend fun authenticatedResult(accessToken: String): AppAuthResult {
@@ -125,6 +147,7 @@ class AppAuthenticationService(context: Context) {
         name = json.getString("name"),
         dateOfBirth = json.optString("dob").takeIf { it.isNotEmpty() },
         username = json.optString("username").takeIf { it.isNotEmpty() },
+        bodyID = json.optString("body_id").takeIf { it.isNotEmpty() },
     )
 
     private suspend fun request(

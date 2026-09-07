@@ -55,19 +55,30 @@ internal fun MainMenuScreen(model: GameViewModel) {
     BackHandler(enabled = destination != HomeDestination.Home) { destination = HomeDestination.Home }
 
     when (destination) {
-        HomeDestination.Home -> HomeMenu(state, model, onUsername = { destination = HomeDestination.Username }, onSafety = { destination = HomeDestination.Safety })
+        HomeDestination.Home -> HomeMenu(
+            state,
+            model,
+            onUsername = { destination = HomeDestination.Username },
+            onMorph = {
+                model.clearMorphMessage()
+                destination = HomeDestination.Morph
+            },
+            onSafety = { destination = HomeDestination.Safety },
+        )
         HomeDestination.Username -> ProfileUsernameScreen(state, model)
+        HomeDestination.Morph -> MorphSelectionScreen(state, model)
         HomeDestination.Safety -> SafetyCenterScreen(state, model)
     }
 }
 
-private enum class HomeDestination { Home, Username, Safety }
+private enum class HomeDestination { Home, Username, Morph, Safety }
 
 @Composable
 private fun HomeMenu(
     state: GameUiState,
     model: GameViewModel,
     onUsername: () -> Unit,
+    onMorph: () -> Unit,
     onSafety: () -> Unit,
 ) {
     var showingLogoutConfirmation by remember { mutableStateOf(false) }
@@ -128,6 +139,8 @@ private fun HomeMenu(
             Text("ACCOUNT", modifier = Modifier.padding(top = 36.dp, bottom = 10.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
             MenuGroup {
                 MenuRow("@", "Change your username", state.username.ifBlank { "Player" }, onUsername)
+                MenuDivider()
+                MenuRow("♙", "Choose your morph", MorphOption.fromBodyID(state.authUser?.bodyID).label, onMorph)
                 MenuDivider()
                 MenuRow("!", "Block or unblock players", "Players & safety", onSafety)
             }

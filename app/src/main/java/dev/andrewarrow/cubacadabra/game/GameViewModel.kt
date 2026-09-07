@@ -483,6 +483,47 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun clearProfileUsernameMessage() {
         update { copy(profileUsernameMessage = null, profileUsernameMessageIsError = false) }
     }
+
+    fun saveMorph(bodyID: String) {
+        update { copy(morphSaving = true, morphMessage = null, morphMessageIsError = false) }
+        viewModelScope.launch {
+            runCatching { authentication.saveAvatar(bodyID) }
+                .onSuccess { result ->
+                    applyProfileUpdate(result)
+                    update {
+                        copy(
+                            morphSaving = false,
+                            morphMessage = "Morph saved.",
+                            morphMessageIsError = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    val message = when (error) {
+                        is AppProfileException.Server -> when (error.code) {
+                            "invalid_body_id" -> "Choose one of the available morphs."
+                            "age_required" -> "Complete your birthday before choosing a morph."
+                            "not_authenticated" -> "Your sign-in has expired. Please sign in again."
+                            else -> "We couldn’t save your morph. Please try again."
+                        }
+                        is AppProfileException.Unauthorized -> "Your sign-in has expired. Please sign in again."
+                        else -> "We couldn’t save your morph. Please try again."
+                    }
+                    update {
+                        copy(
+                            morphSaving = false,
+                            morphMessage = message,
+                            morphMessageIsError = true,
+                        )
+                    }
+                }
+        }
+    }
+
+    fun clearMorphMessage() {
+        update { copy(morphMessage = null, morphMessageIsError = false) }
+    }
+
     fun createRenderer(surface: android.view.Surface, width: Float, height: Float) {
         if (engine == 0L || renderer != 0L) return
         Log.d(TAG, "creating renderer surfaceValid=${surface.isValid} size=${width}x${height}")

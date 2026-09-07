@@ -58,6 +58,9 @@ data class GameUiState(
     val profileUsernameSaving: Boolean = false,
     val profileUsernameMessage: String? = null,
     val profileUsernameMessageIsError: Boolean = false,
+    val morphSaving: Boolean = false,
+    val morphMessage: String? = null,
+    val morphMessageIsError: Boolean = false,
     val blockedPlayerIDs: Set<String> = emptySet(),
     val activePlayers: List<RemotePlayerSummary> = emptyList(),
 )

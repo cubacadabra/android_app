@@ -6,6 +6,7 @@ data class AppAuthUser(
     val name: String,
     val dateOfBirth: String?,
     val username: String?,
+    val bodyID: String?,
 )
 
 data class AppAuthResult(
