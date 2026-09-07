@@ -287,13 +287,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val data = NativeEngine.nativePollNetworkMessage(currentEngine) ?: break
             val message = runCatching { JSONObject(String(data, StandardCharsets.UTF_8)) }.getOrNull() ?: continue
             val channel = message.optString("channel").takeIf { it.isNotEmpty() } ?: continue
-            val payload = JSONObject().apply {
-                put("channel", channel)
-                if (message.has("payload")) put("payload", message.get("payload"))
+            val expectedSequence = when (val value = message.opt("expectedSequence")) {
+                is Number -> {
+                    val doubleValue = value.toDouble()
+                    if (doubleValue.isFinite() && doubleValue >= 0.0 &&
+                        doubleValue == doubleValue.toLong().toDouble()
+                    ) doubleValue.toLong() else null
+                }
+                else -> null
             }
-            socket.sendExperience(
-                if (message.optBoolean("retained", false)) "game_state_set" else "game_message",
-                payload,
+            val type = if (expectedSequence != null) {
+                "game_state_compare_set"
+            } else if (message.optBoolean("retained", false)) {
+                "game_state_set"
+            } else {
+                "game_message"
+            }
+            socket.sendGameMessage(
+                type = type,
+                channel = channel,
+                payload = if (message.has("payload")) message.get("payload") else JSONObject.NULL,
+                expectedSequence = expectedSequence,
             )
         }
     }

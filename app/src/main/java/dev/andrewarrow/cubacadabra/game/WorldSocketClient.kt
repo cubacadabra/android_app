@@ -253,13 +253,35 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     }
 
     fun sendExperience(type: String, payload: JSONObject = JSONObject()) {
+        val message = JSONObject(payload.toString()).apply { put("type", type) }
+        sendJSONMessage(message)
+    }
+
+    fun sendGameMessage(
+        type: String,
+        channel: String,
+        payload: Any,
+        expectedSequence: Long? = null,
+    ) {
+        val message = JSONObject().apply {
+            put("type", type)
+            put("channel", channel)
+            put("payload", payload)
+        }
+        if (expectedSequence != null) {
+            if (expectedSequence < 0) return
+            message.put("expectedSequence", expectedSequence)
+        }
+        sendJSONMessage(message)
+    }
+
+    private fun sendJSONMessage(message: JSONObject) {
         val current = socket ?: run {
-            Log.w(TAG, "experience send dropped: no socket type=$type world=$worldId stopped=$stopped")
+            Log.w(TAG, "experience send dropped: no socket type=${message.optString("type")} world=$worldId stopped=$stopped")
             return
         }
-        val message = JSONObject(payload.toString()).apply { put("type", type) }
         val sent = current.send(message.toString())
-        Log.d(TAG, "experience send type=$type world=$worldId sent=$sent payload=$message")
+        Log.d(TAG, "experience send type=${message.optString("type")} world=$worldId sent=$sent payload=$message")
     }
 
     private fun sendVisibility(webSocket: WebSocket) {
