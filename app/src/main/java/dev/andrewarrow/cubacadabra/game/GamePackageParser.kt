@@ -29,7 +29,7 @@ private fun parseAssets(json: JSONObject?): GameAssets? {
     } else {
         if (json.isNull("audio")) throw GamePackageException("The game manifest assets.audio must be an object.")
         val audioValue = json.getJSONObject("audio")
-        buildMap {
+        buildMap<String, GameAudioAssetDefinition> {
             audioValue.keys().forEach { id ->
                 val definition = audioValue.getJSONObject(id)
                 put(id, GameAudioAssetDefinition(
@@ -44,7 +44,7 @@ private fun parseAssets(json: JSONObject?): GameAssets? {
     } else {
         if (json.isNull("images")) throw GamePackageException("The game manifest assets.images must be an object.")
         val imageValue = json.getJSONObject("images")
-        buildMap {
+        buildMap<String, GameImageAssetDefinition> {
             imageValue.keys().forEach { id ->
                 put(id, GameImageAssetDefinition(imageValue.getJSONObject(id).getString("path")))
             }
