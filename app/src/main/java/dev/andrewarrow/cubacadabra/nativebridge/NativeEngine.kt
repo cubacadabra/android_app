@@ -47,6 +47,13 @@ internal object NativeEngine {
     external fun nativePollAudioMessage(engine: Long): ByteArray?
     external fun nativeCreateRenderer(engine: Long, surface: Surface, width: Float, height: Float): Long
     external fun nativeResizeRenderer(renderer: Long, width: Float, height: Float)
+    external fun nativeSetPackageImageAtlas(
+        renderer: Long,
+        width: Int,
+        height: Int,
+        pixels: ByteArray,
+        regions: ByteArray,
+    ): Boolean
     external fun nativeDrawRenderer(renderer: Long, engine: Long)
     external fun nativeDestroyRenderer(renderer: Long)
     external fun nativeSnapshotLength(): Int

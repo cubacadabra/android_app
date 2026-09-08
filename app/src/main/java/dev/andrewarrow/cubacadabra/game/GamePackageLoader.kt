@@ -18,9 +18,15 @@ class GamePackageLoader(context: Context) {
         // UI. Keep the old cache from overriding the corrected bundle after
         // an app update, matching the iOS loader's versioned cache keys.
         const val CACHE_VERSION = "v4"
+        const val MAXIMUM_IMAGE_ASSETS = 16
         val AUDIO_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
         val AUDIO_PATH_PATTERN = Regex(
             "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wav$",
+            RegexOption.IGNORE_CASE,
+        )
+        val IMAGE_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
+        val IMAGE_PATH_PATTERN = Regex(
+            "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.(?:png|jpe?g)$",
             RegexOption.IGNORE_CASE,
         )
     }
@@ -29,6 +35,7 @@ class GamePackageLoader(context: Context) {
     private val preferences = context.getSharedPreferences("game-package", Context.MODE_PRIVATE)
     private val maximumManifestBytes = 512 * 1024
     private val maximumScriptBytes = 512 * 1024
+    private val maximumImageAssetBytes = 8 * 1024 * 1024
 
     suspend fun load(
         gameID: String = "first-game",
@@ -36,10 +43,13 @@ class GamePackageLoader(context: Context) {
     ): LoadedGamePackage = withContext(Dispatchers.IO) {
         if (packageBaseUrl != null) {
             val base = packageBaseUrl.trimEnd('/') + "/"
-            return@withContext makePackage(
-                fetch(URL(base + "manifest.json"), maximumManifestBytes),
-                fetch(URL(base + "game.luau"), maximumScriptBytes),
-                audioBaseUrl = base,
+            return@withContext loadPackageImages(
+                makePackage(
+                    fetch(URL(base + "manifest.json"), maximumManifestBytes),
+                    fetch(URL(base + "game.luau"), maximumScriptBytes),
+                    audioBaseUrl = base,
+                ),
+                imageBaseUrl = base,
             ).also {
                 Log.d(TAG, "package load game=$gameID selected=catalog")
             }
@@ -71,10 +81,13 @@ class GamePackageLoader(context: Context) {
             return@withContext cached
         }
         val base = remoteBaseUrl(gameID)
-        val downloaded = makePackage(
-            fetch(URL(base + "manifest.json"), maximumManifestBytes),
-            fetch(URL(base + "game.luau"), maximumScriptBytes),
-            audioBaseUrl = base,
+        val downloaded = loadPackageImages(
+            makePackage(
+                fetch(URL(base + "manifest.json"), maximumManifestBytes),
+                fetch(URL(base + "game.luau"), maximumScriptBytes),
+                audioBaseUrl = base,
+            ),
+            imageBaseUrl = base,
         )
         preferences.edit()
             .putString(manifestKey(gameID), downloaded.manifest)
@@ -87,10 +100,13 @@ class GamePackageLoader(context: Context) {
     suspend fun refreshPackage(gameID: String = "first-game") = withContext(Dispatchers.IO) {
         runCatching {
             val base = remoteBaseUrl(gameID)
-            val downloadedPackage = makePackage(
-                fetch(URL(base + "manifest.json"), maximumManifestBytes),
-                fetch(URL(base + "game.luau"), maximumScriptBytes),
-                audioBaseUrl = base,
+            val downloadedPackage = loadPackageImages(
+                makePackage(
+                    fetch(URL(base + "manifest.json"), maximumManifestBytes),
+                    fetch(URL(base + "game.luau"), maximumScriptBytes),
+                    audioBaseUrl = base,
+                ),
+                imageBaseUrl = base,
             )
             preferences.edit()
                 .putString(manifestKey(gameID), downloadedPackage.manifest)
@@ -107,13 +123,16 @@ class GamePackageLoader(context: Context) {
         val manifest = preferences.getString(manifestKey(gameID), null).orEmpty()
         val script = preferences.getString(scriptKey(gameID), null).orEmpty()
         if (manifest.isEmpty() || script.isEmpty()) return null
-        return runCatching {
+        val loaded = runCatching {
             makePackage(
                 manifest.toByteArray(Charsets.UTF_8),
                 script.toByteArray(Charsets.UTF_8),
                 audioBaseUrl = remoteBaseUrl(gameID),
             )
         }.getOrNull()
+        return loaded?.let {
+            runCatching { loadPackageImages(it, imageBaseUrl = remoteBaseUrl(gameID)) }.getOrDefault(it)
+        }
     }
 
     private fun loadBundledPackage(gameID: String): LoadedGamePackage {
@@ -122,7 +141,10 @@ class GamePackageLoader(context: Context) {
         val scriptPath = "$directory/game.luau"
         val manifestBytes = applicationContext.assets.open(manifestPath).use { it.readBytes() }
         val scriptBytes = applicationContext.assets.open(scriptPath).use { it.readBytes() }
-        return makePackage(manifestBytes, scriptBytes, bundledDirectory = directory)
+        return loadPackageImages(
+            makePackage(manifestBytes, scriptBytes, bundledDirectory = directory),
+            bundledDirectory = directory,
+        )
     }
 
     private fun remoteBaseUrl(gameID: String): String {
@@ -157,8 +179,49 @@ class GamePackageLoader(context: Context) {
             manifest,
             script,
             audioAssets,
+            emptyMap(),
             GamePackageVersion.parse(manifestObject.optString("version", null)),
         )
+    }
+
+    private fun loadPackageImages(
+        loaded: LoadedGamePackage,
+        imageBaseUrl: String? = null,
+        bundledDirectory: String? = null,
+    ): LoadedGamePackage {
+        val definitions = loaded.packageData.assets?.images.orEmpty()
+        if (definitions.size > MAXIMUM_IMAGE_ASSETS) {
+            throw GamePackageException("This game declares too many world images.")
+        }
+        val images = buildMap {
+            definitions.forEach { (id, definition) ->
+                if (!IMAGE_ID_PATTERN.matches(id) || !IMAGE_PATH_PATTERN.matches(definition.path)) {
+                    throw GamePackageException("The game image asset \"$id\" is invalid.")
+                }
+                val data = when {
+                    bundledDirectory != null -> {
+                        val path = "$bundledDirectory/${definition.path}"
+                        applicationContext.assets.open(path).use { stream ->
+                            stream.readBytes().also { bytes ->
+                                if (bytes.size > maximumImageAssetBytes) {
+                                    throw GamePackageException("The game image asset \"$id\" is invalid.")
+                                }
+                            }
+                        }
+                    }
+                    imageBaseUrl != null -> {
+                        val url = runCatching { URL(imageBaseUrl + definition.path) }.getOrNull()
+                        if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                            throw GamePackageException("The game image asset \"$id\" is invalid.")
+                        }
+                        fetch(url, maximumImageAssetBytes)
+                    }
+                    else -> throw GamePackageException("The game image asset \"$id\" is invalid.")
+                }
+                put(id, LoadedGameImageAsset(data))
+            }
+        }
+        return loaded.copy(imageAssets = images)
     }
 
     private fun normalizeAudioAssets(

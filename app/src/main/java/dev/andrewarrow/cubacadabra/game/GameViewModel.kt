@@ -68,6 +68,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var isSigningIn = false
     private var engine: Long = 0
     private var renderer: Long = 0
+    private var packageImageAtlas: GameImageAtlas? = null
     private var lobbyEnabled = true
     private var lastFrameNanos: Long? = null
     private var forward = 0f
@@ -184,6 +185,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun createEngine(loaded: LoadedGamePackage): Long {
+        packageImageAtlas = GameImageAtlasBuilder.make(loaded.imageAssets)
         val created = NativeEngine.nativeCreate()
         check(created != 0L) { "The Rust game engine could not be created." }
         try {
@@ -574,6 +576,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(TAG, "creating renderer surfaceValid=${surface.isValid} size=${width}x${height}")
         renderer = NativeEngine.nativeCreateRenderer(engine, surface, width, height)
         Log.d(TAG, "renderer created handle=$renderer")
+        if (renderer != 0L) {
+            packageImageAtlas?.let { atlas ->
+                val uploaded = NativeEngine.nativeSetPackageImageAtlas(
+                    renderer,
+                    atlas.width,
+                    atlas.height,
+                    atlas.pixels,
+                    atlas.regionsJson.toByteArray(StandardCharsets.UTF_8),
+                )
+                if (!uploaded) Log.e(TAG, "package image atlas upload failed")
+            }
+        }
         if (renderer == 0L && width > 0f && height > 0f) {
             update { copy(errorMessage = "The Android graphics renderer could not initialize.") }
         }

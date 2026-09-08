@@ -24,19 +24,33 @@ internal fun parsePackage(json: JSONObject): GamePackage {
 
 private fun parseAssets(json: JSONObject?): GameAssets? {
     if (json == null) return null
-    if (!json.has("audio")) return GameAssets(null)
-    if (json.isNull("audio")) throw GamePackageException("The game manifest assets.audio must be an object.")
-    val audioValue = json.getJSONObject("audio")
-    val audio = buildMap {
-        audioValue.keys().forEach { id ->
-            val definition = audioValue.getJSONObject(id)
-            put(id, GameAudioAssetDefinition(
-                path = definition.getString("path"),
-                volume = definition.optDouble("volume", 1.0).toFloat(),
-            ))
+    val audio = if (!json.has("audio")) {
+        null
+    } else {
+        if (json.isNull("audio")) throw GamePackageException("The game manifest assets.audio must be an object.")
+        val audioValue = json.getJSONObject("audio")
+        buildMap {
+            audioValue.keys().forEach { id ->
+                val definition = audioValue.getJSONObject(id)
+                put(id, GameAudioAssetDefinition(
+                    path = definition.getString("path"),
+                    volume = definition.optDouble("volume", 1.0).toFloat(),
+                ))
+            }
         }
     }
-    return GameAssets(audio)
+    val images = if (!json.has("images")) {
+        null
+    } else {
+        if (json.isNull("images")) throw GamePackageException("The game manifest assets.images must be an object.")
+        val imageValue = json.getJSONObject("images")
+        buildMap {
+            imageValue.keys().forEach { id ->
+                put(id, GameImageAssetDefinition(imageValue.getJSONObject(id).getString("path")))
+            }
+        }
+    }
+    return GameAssets(audio = audio, images = images)
 }
 
 private fun parseWorld(json: JSONObject): WorldDefinition = WorldDefinition(

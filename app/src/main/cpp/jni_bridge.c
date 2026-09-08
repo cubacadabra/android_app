@@ -61,6 +61,10 @@ extern uint8_t engine_set_local_appearance_json(CubacadabraEngine *, const uint8
 extern uint32_t engine_appearance_revision(const CubacadabraEngine *);
 extern CubacadabraRenderer *engine_renderer_create(void *, float, float);
 extern void engine_renderer_resize(CubacadabraRenderer *, float, float);
+extern uint8_t engine_renderer_set_package_image_atlas(
+    CubacadabraRenderer *, uint32_t, uint32_t, const uint8_t *, uintptr_t,
+    const uint8_t *, uintptr_t
+);
 extern void engine_renderer_sync(CubacadabraRenderer *, const CubacadabraEngine *);
 extern void engine_renderer_draw(CubacadabraRenderer *);
 extern void engine_renderer_destroy(CubacadabraRenderer *);
@@ -276,6 +280,36 @@ static void JNICALL nativeResizeRenderer(JNIEnv *env, jclass klass, jlong value,
     if (holder) engine_renderer_resize(holder->renderer, width, height);
 }
 
+static jboolean JNICALL nativeSetPackageImageAtlas(JNIEnv *env, jclass klass, jlong value,
+                                                    jint width, jint height, jbyteArray pixels,
+                                                    jbyteArray regions) {
+    (void)klass;
+    AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
+    if (!holder || width <= 0 || height <= 0) return JNI_FALSE;
+
+    jsize pixelLength = (*env)->GetArrayLength(env, pixels);
+    jsize regionLength = (*env)->GetArrayLength(env, regions);
+    jbyte *pixelSource = (*env)->GetByteArrayElements(env, pixels, NULL);
+    jbyte *regionSource = (*env)->GetByteArrayElements(env, regions, NULL);
+    if ((!pixelSource && pixelLength > 0) || (!regionSource && regionLength > 0)) {
+        if (pixelSource) (*env)->ReleaseByteArrayElements(env, pixels, pixelSource, JNI_ABORT);
+        if (regionSource) (*env)->ReleaseByteArrayElements(env, regions, regionSource, JNI_ABORT);
+        return JNI_FALSE;
+    }
+    uint8_t applied = engine_renderer_set_package_image_atlas(
+        holder->renderer,
+        (uint32_t)width,
+        (uint32_t)height,
+        (const uint8_t *)pixelSource,
+        (uintptr_t)pixelLength,
+        (const uint8_t *)regionSource,
+        (uintptr_t)regionLength
+    );
+    if (pixelSource) (*env)->ReleaseByteArrayElements(env, pixels, pixelSource, JNI_ABORT);
+    if (regionSource) (*env)->ReleaseByteArrayElements(env, regions, regionSource, JNI_ABORT);
+    return applied ? JNI_TRUE : JNI_FALSE;
+}
+
 static void JNICALL nativeDrawRenderer(JNIEnv *env, jclass klass, jlong value, jlong engineValue) {
     (void)env; (void)klass;
     AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
@@ -380,6 +414,7 @@ static JNINativeMethod methods[] = {
     {"nativePollAudioMessage", "(J)[B", (void *)nativePollAudioMessage},
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
+    {"nativeSetPackageImageAtlas", "(JII[B[B)Z", (void *)nativeSetPackageImageAtlas},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},

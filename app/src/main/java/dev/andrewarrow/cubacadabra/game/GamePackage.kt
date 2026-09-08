@@ -28,9 +28,13 @@ data class GamePackage(
     fun runtimeWorldIds(): List<String> = listOf("lobby") + worlds.keys.sorted()
 }
 
-data class GameAssets(val audio: Map<String, GameAudioAssetDefinition>?)
+data class GameAssets(
+    val audio: Map<String, GameAudioAssetDefinition>?,
+    val images: Map<String, GameImageAssetDefinition>? = null,
+)
 
 data class GameAudioAssetDefinition(val path: String, val volume: Float)
+data class GameImageAssetDefinition(val path: String)
 
 data class GameCatalogEntry(
     val id: String,
@@ -84,6 +88,7 @@ data class LoadedGamePackage(
     val manifest: String,
     val script: String,
     val audioAssets: Map<String, LoadedGameAudioAsset>,
+    val imageAssets: Map<String, LoadedGameImageAsset>,
     val version: GamePackageVersion?,
 )
 
@@ -126,6 +131,15 @@ data class LoadedGameAudioAsset(
     val volume: Float,
     val bundledAssetPath: String? = null,
     val url: String? = null,
+)
+
+data class LoadedGameImageAsset(val data: ByteArray)
+
+data class GameImageAtlas(
+    val width: Int,
+    val height: Int,
+    val pixels: ByteArray,
+    val regionsJson: String,
 )
 
 class GamePackageException(message: String) : Exception(message)
