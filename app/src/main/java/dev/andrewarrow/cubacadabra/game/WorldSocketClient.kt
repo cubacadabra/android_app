@@ -173,7 +173,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             onExperience(event.toExperienceEvent(type))
             return
         }
-        if (type == "game_state" || type == "game_message") {
+        if (type == "game_state" || type == "game_message" || type == "player_state") {
             onGameMessage(event.toString().toByteArray(StandardCharsets.UTF_8))
             return
         }
