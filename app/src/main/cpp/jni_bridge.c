@@ -56,6 +56,7 @@ extern uint8_t engine_settings_room_state(const CubacadabraEngine *engine);
 extern float engine_camera_yaw(const CubacadabraEngine *engine);
 extern float engine_camera_pitch(const CubacadabraEngine *engine);
 extern float engine_camera_distance(const CubacadabraEngine *engine);
+extern uint32_t engine_player_respawn_event_id(const CubacadabraEngine *engine);
 extern uint8_t engine_set_local_appearance_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
 extern uint32_t engine_appearance_revision(const CubacadabraEngine *);
 extern CubacadabraRenderer *engine_renderer_create(void *, float, float);
@@ -336,6 +337,11 @@ static jboolean JNICALL nativeStartWorld(JNIEnv *env, jclass klass, jlong value,
     return engine_start_world(engine(value), (uintptr_t)(world < 0 ? 0 : world));
 }
 
+static jint JNICALL nativePlayerRespawnEventId(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    return (jint)engine_player_respawn_event_id(engine(value));
+}
+
 static void JNICALL nativeReconcilePlayer(JNIEnv *env, jclass klass, jlong value, jfloat x, jfloat y, jfloat z, jfloat yaw) {
     (void)env; (void)klass;
     engine_reconcile_player(engine(value), x, y, z, yaw);
@@ -382,6 +388,7 @@ static JNINativeMethod methods[] = {
     {"nativeSetLocalAppearance", "(J[B)Z", (void *)nativeSetLocalAppearance},
     {"nativeAppearanceRevision", "(J)I", (void *)nativeAppearanceRevision},
     {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
+    {"nativePlayerRespawnEventId", "(J)I", (void *)nativePlayerRespawnEventId},
     {"nativeReconcilePlayer", "(JFFFF)V", (void *)nativeReconcilePlayer},
     {"nativeSetBuildBlockCount", "(JI)V", (void *)nativeSetBuildBlockCount},
     {"nativeSetBuildBlock", "(JIFFFFFFII)V", (void *)nativeSetBuildBlock},

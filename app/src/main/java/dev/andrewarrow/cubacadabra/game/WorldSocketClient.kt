@@ -81,9 +81,9 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         if (normalized.isNotEmpty()) gameId = normalized
     }
 
-    fun sendMove(position: Vec3, yaw: Float, moving: Boolean, sprinting: Boolean) {
+    fun sendMove(position: Vec3, yaw: Float, moving: Boolean, sprinting: Boolean, respawnEventId: Int) {
         val current = socket ?: return
-        val move = SentMove(position, yaw, moving, sprinting)
+        val move = SentMove(position, yaw, moving, sprinting, respawnEventId)
         if (lastMove != null && !move.changedFrom(lastMove!!)) return
         val now = System.currentTimeMillis()
         if (now - lastSentAt < SEND_INTERVAL_MS) return
@@ -91,6 +91,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             put("type", "move")
             put("x", position.x); put("y", position.y); put("z", position.z)
             put("yaw", yaw); put("moving", moving); put("sprinting", sprinting)
+            put("respawnEventId", respawnEventId.toLong() and 0xffff_ffffL)
         }
         if (current.send(payload.toString())) {
             lastSentAt = now
@@ -313,8 +314,15 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         scope.launch { onStateChange(state) }
     }
 
-    private data class SentMove(val position: Vec3, val yaw: Float, val moving: Boolean, val sprinting: Boolean) {
+    private data class SentMove(
+        val position: Vec3,
+        val yaw: Float,
+        val moving: Boolean,
+        val sprinting: Boolean,
+        val respawnEventId: Int,
+    ) {
         fun changedFrom(previous: SentMove) = moving != previous.moving || sprinting != previous.sprinting ||
+            respawnEventId != previous.respawnEventId ||
             abs(position.x - previous.position.x) > EPSILON || abs(position.y - previous.position.y) > EPSILON ||
             abs(position.z - previous.position.z) > EPSILON || abs(yaw - previous.yaw) > EPSILON
     }

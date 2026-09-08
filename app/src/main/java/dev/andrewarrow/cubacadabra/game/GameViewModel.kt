@@ -278,7 +278,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         update { copy(frame = nextFrame) }
         if (_state.value.worldId != "settings") {
-            socket.sendMove(nextFrame.player.position, nextFrame.player.yaw, nextFrame.player.moving, nextFrame.player.sprinting)
+            socket.sendMove(
+                nextFrame.player.position,
+                nextFrame.player.yaw,
+                nextFrame.player.moving,
+                nextFrame.player.sprinting,
+                NativeEngine.nativePlayerRespawnEventId(currentEngine),
+            )
         }
     }
 

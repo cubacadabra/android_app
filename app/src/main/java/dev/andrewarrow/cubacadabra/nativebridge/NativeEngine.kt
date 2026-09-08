@@ -54,6 +54,7 @@ internal object NativeEngine {
     external fun nativeSetLocalAppearance(engine: Long, appearance: ByteArray): Boolean
     external fun nativeAppearanceRevision(engine: Long): Int
     external fun nativeStartWorld(engine: Long, world: Int): Boolean
+    external fun nativePlayerRespawnEventId(engine: Long): Int
     external fun nativeReconcilePlayer(engine: Long, x: Float, y: Float, z: Float, yaw: Float)
     external fun nativeSetBuildBlockCount(engine: Long, count: Int)
     external fun nativeSetBuildBlock(engine: Long, index: Int, x: Float, y: Float, z: Float, width: Float, height: Float, depth: Float, color: Int, rotation: Int)
