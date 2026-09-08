@@ -30,7 +30,20 @@ class GamePackageLoader(context: Context) {
     private val maximumManifestBytes = 512 * 1024
     private val maximumScriptBytes = 512 * 1024
 
-    suspend fun load(gameID: String = "first-game"): LoadedGamePackage = withContext(Dispatchers.IO) {
+    suspend fun load(
+        gameID: String = "first-game",
+        packageBaseUrl: String? = null,
+    ): LoadedGamePackage = withContext(Dispatchers.IO) {
+        if (packageBaseUrl != null) {
+            val base = packageBaseUrl.trimEnd('/') + "/"
+            return@withContext makePackage(
+                fetch(URL(base + "manifest.json"), maximumManifestBytes),
+                fetch(URL(base + "game.luau"), maximumScriptBytes),
+                audioBaseUrl = base,
+            ).also {
+                Log.d(TAG, "package load game=$gameID selected=catalog")
+            }
+        }
         if (BuildConfig.DEBUG) {
             // The Android build assembles the sibling game project into the
             // APK. Prefer that package during local development so source

@@ -73,6 +73,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var forward = 0f
     private var strafe = 0f
     private var jumpQueued = false
+    private var climbing = false
     private var lookX = 0f
     private var lookY = 0f
     private var zoomDelta = 0f
@@ -260,6 +261,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val settingsOpen = _state.value.usernameEditorOpen
         NativeEngine.nativeSetInput(currentEngine, if (settingsOpen) 0f else forward, if (settingsOpen) 0f else strafe,
             if (settingsOpen) false else _state.value.sprinting, if (settingsOpen) false else jumpQueued,
+            if (settingsOpen) false else climbing,
             if (settingsOpen) 0f else lookX, if (settingsOpen) 0f else lookY, if (settingsOpen) 0f else zoomDelta)
         jumpQueued = false; lookX = 0f; lookY = 0f; zoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
@@ -411,6 +413,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 "player.move" -> setMove(strafe = uiEvent.x ?: 0f, forward = -(uiEvent.y ?: 0f))
                 "player.jump" -> if (uiEvent.phase == "activate") jump()
                 "player.run" -> if (uiEvent.phase == "activate") toggleSprinting()
+                "player.climb" -> if (uiEvent.phase == "activate") climbing = !climbing
                 "shared.about.open" -> if (uiEvent.phase == "activate") {
                     runCatching {
                         getApplication<Application>().startActivity(
@@ -807,18 +810,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         zoomDelta = 0f
     }
 
-    fun selectGame(gameID: String) {
-        if (GameCatalog.available.none { it.id == gameID }) return
+    fun selectGame(game: GameCatalogEntry) {
+        if (game.packageBaseUrl == null && GameCatalog.available.none { it.id == game.id }) return
         if (_state.value.isSelectingGame) return
-        if (_state.value.selectedGameID == gameID && _state.value.packageData != null) {
+        if (_state.value.selectedGameCatalogID == game.catalogID && _state.value.packageData != null) {
             enterGame()
             return
         }
 
-        update { copy(isSelectingGame = true, selectingGameID = gameID, gameSelectionError = null) }
+        update { copy(isSelectingGame = true, selectingGameID = game.catalogID, gameSelectionError = null) }
         viewModelScope.launch {
             runCatching {
-                val loaded = withContext(Dispatchers.IO) { loader.load(gameID) }
+                val loaded = withContext(Dispatchers.IO) {
+                    loader.load(game.id, packageBaseUrl = game.packageBaseUrl)
+                }
                 val nextEngine = createEngine(loaded)
                 gameAudio.configure(loaded.audioAssets)
                 if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
@@ -826,7 +831,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (engine != 0L) NativeEngine.nativeDestroy(engine)
                 engine = nextEngine
                 socket.disconnect()
-                socket.setGameID(gameID)
+                socket.setGameID(game.id)
                 connectedWorldId = null
                 pendingSessionWorldId = null
                 remotes.clear()
@@ -843,7 +848,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         isMainMenu = true,
                         isSelectingGame = false,
                         selectingGameID = null,
-                        selectedGameID = gameID,
+                        selectedGameID = game.id,
+                        selectedGameCatalogID = game.catalogID,
                         packageData = loaded.packageData,
                         worldId = worldID,
                         frame = initialFrame,
@@ -855,7 +861,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         lobbyLaunchStartsAt = null,
                     )
                 }
-                viewModelScope.launch { loader.refreshPackage(gameID) }
+                if (game.packageBaseUrl == null) {
+                    viewModelScope.launch { loader.refreshPackage(game.id) }
+                }
                 enterGame()
             }.onFailure { error ->
                 update {
@@ -867,6 +875,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun clearGameSelectionError() {
+        update { copy(gameSelectionError = null) }
     }
 
     private fun exitToMainMenu() {

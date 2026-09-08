@@ -22,7 +22,7 @@ extern uint8_t engine_start_world(CubacadabraEngine *, uintptr_t);
 extern void engine_reconcile_player(CubacadabraEngine *, float, float, float, float);
 extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
-extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, float, float, float);
+extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, uint8_t, float, float, float);
 extern void engine_set_ui_viewport(CubacadabraEngine *, float, float, float, float, float, float, float);
 extern void engine_set_authenticated(CubacadabraEngine *, uint8_t);
 extern uint8_t engine_ui_pointer(CubacadabraEngine *, uint64_t, uint8_t, float, float);
@@ -107,9 +107,9 @@ static jbyteArray JNICALL nativeScriptError(JNIEnv *env, jclass klass, jlong val
 }
 
 static void JNICALL nativeSetInput(JNIEnv *env, jclass klass, jlong value, jfloat forward, jfloat strafe,
-                                    jboolean sprint, jboolean jump, jfloat lookX, jfloat lookY, jfloat zoom) {
+                                    jboolean sprint, jboolean jump, jboolean climb, jfloat lookX, jfloat lookY, jfloat zoom) {
     (void)env; (void)klass;
-    engine_set_input(engine(value), forward, strafe, sprint ? 1 : 0, jump ? 1 : 0, lookX, lookY, zoom);
+    engine_set_input(engine(value), forward, strafe, sprint ? 1 : 0, jump ? 1 : 0, climb ? 1 : 0, lookX, lookY, zoom);
 }
 
 static void JNICALL nativeSetUiViewport(JNIEnv *env, jclass klass, jlong value, jfloat width, jfloat height,
@@ -364,7 +364,7 @@ static JNINativeMethod methods[] = {
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
     {"nativeLoad", "(J[BZ)Z", (void *)nativeLoad},
     {"nativeScriptError", "(J)[B", (void *)nativeScriptError},
-    {"nativeSetInput", "(JFFZZFFF)V", (void *)nativeSetInput},
+    {"nativeSetInput", "(JFFZZZFFF)V", (void *)nativeSetInput},
     {"nativeSetUiViewport", "(JFFFFFFF)V", (void *)nativeSetUiViewport},
     {"nativeSetAuthenticated", "(JZ)V", (void *)nativeSetAuthenticated},
     {"nativeUiPointer", "(JJIFF)Z", (void *)nativeUiPointer},

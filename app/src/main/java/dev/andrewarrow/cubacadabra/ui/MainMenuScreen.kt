@@ -43,16 +43,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.andrewarrow.cubacadabra.game.CubeCatalogService
 import dev.andrewarrow.cubacadabra.game.GameCatalog
+import dev.andrewarrow.cubacadabra.game.GameCatalogEntry
 import dev.andrewarrow.cubacadabra.game.GameUiState
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import dev.andrewarrow.cubacadabra.game.RemotePlayerSummary
+import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun MainMenuScreen(model: GameViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
     var destination by remember { mutableStateOf(HomeDestination.Home) }
-    BackHandler(enabled = destination != HomeDestination.Home) { destination = HomeDestination.Home }
+    BackHandler(enabled = destination != HomeDestination.Home) {
+        if (destination == HomeDestination.More) model.clearGameSelectionError()
+        destination = HomeDestination.Home
+    }
 
     when (destination) {
         HomeDestination.Home -> HomeMenu(
@@ -64,14 +70,19 @@ internal fun MainMenuScreen(model: GameViewModel) {
                 destination = HomeDestination.Morph
             },
             onSafety = { destination = HomeDestination.Safety },
+            onMore = {
+                model.clearGameSelectionError()
+                destination = HomeDestination.More
+            },
         )
+        HomeDestination.More -> MoreCubesScreen(state, model)
         HomeDestination.Username -> ProfileUsernameScreen(state, model)
         HomeDestination.Morph -> MorphSelectionScreen(state, model)
         HomeDestination.Safety -> SafetyCenterScreen(state, model)
     }
 }
 
-private enum class HomeDestination { Home, Username, Morph, Safety }
+private enum class HomeDestination { Home, More, Username, Morph, Safety }
 
 @Composable
 private fun HomeMenu(
@@ -80,6 +91,7 @@ private fun HomeMenu(
     onUsername: () -> Unit,
     onMorph: () -> Unit,
     onSafety: () -> Unit,
+    onMore: () -> Unit,
 ) {
     var showingLogoutConfirmation by remember { mutableStateOf(false) }
 
@@ -123,15 +135,17 @@ private fun HomeMenu(
             MenuGroup {
                 GameCatalog.available.forEachIndexed { index, game ->
                     GameMenuRow(
-                        gameID = game.id,
+                        symbol = if (index == 0) "01" else "02",
                         title = game.title,
                         subtitle = game.subtitle,
-                        loading = state.selectingGameID == game.id,
+                        loading = state.selectingGameID == game.catalogID,
                         enabled = !state.isSelectingGame,
-                        onClick = { model.selectGame(game.id) },
+                        onClick = { model.selectGame(game) },
                     )
                     if (index < GameCatalog.available.lastIndex) MenuDivider()
                 }
+                MenuDivider()
+                MenuRow("•••", "More", "Browse uploaded cubes", onMore)
             }
             state.gameSelectionError?.let { error ->
                 Text(error, modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
@@ -185,7 +199,7 @@ private fun MenuGroup(content: @Composable () -> Unit) {
 
 @Composable
 private fun GameMenuRow(
-    gameID: String,
+    symbol: String,
     title: String,
     subtitle: String,
     loading: Boolean,
@@ -201,13 +215,114 @@ private fun GameMenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(if (gameID == "second-game") "02" else "01", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(
+            symbol,
+            modifier = Modifier.width(32.dp),
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Text(subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(.68f))
         }
         if (loading) CircularProgressIndicator(Modifier.width(20.dp).height(20.dp), strokeWidth = 2.dp)
         else Text("›", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+    }
+}
+
+@Composable
+private fun MoreCubesScreen(state: GameUiState, model: GameViewModel) {
+    val service = remember { CubeCatalogService() }
+    var cubes by remember { mutableStateOf(emptyList<GameCatalogEntry>()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(reloadKey) {
+        isLoading = true
+        loadError = null
+        try {
+            cubes = service.firstPage()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            loadError = "We couldn’t load the cubes. Please try again."
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 18.dp)
+                .widthIn(max = 720.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            Text(
+                "MORE",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(.62f),
+            )
+            Text(
+                "Browse uploaded cubes",
+                modifier = Modifier.padding(top = 10.dp, bottom = 22.dp),
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(.78f),
+            )
+            when {
+                isLoading -> Row(
+                    modifier = Modifier.padding(vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.width(20.dp).height(20.dp), strokeWidth = 2.dp)
+                    Text("Loading cubes…", color = MaterialTheme.colorScheme.onBackground.copy(.68f))
+                }
+                loadError != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(loadError.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                    TextButton(onClick = { reloadKey += 1 }) {
+                        Text("TRY AGAIN", fontWeight = FontWeight.Bold)
+                    }
+                }
+                cubes.isEmpty() -> Text(
+                    "No uploaded cubes yet.",
+                    modifier = Modifier.padding(vertical = 18.dp),
+                    color = MaterialTheme.colorScheme.onBackground.copy(.68f),
+                )
+                else -> MenuGroup {
+                    cubes.forEachIndexed { index, cube ->
+                        GameMenuRow(
+                            symbol = "◇",
+                            title = cube.title,
+                            subtitle = cube.subtitle,
+                            loading = state.selectingGameID == cube.catalogID,
+                            enabled = !state.isSelectingGame,
+                            onClick = { model.selectGame(cube) },
+                        )
+                        if (index < cubes.lastIndex) MenuDivider()
+                    }
+                }
+            }
+            state.gameSelectionError?.let { error ->
+                Text(
+                    error,
+                    modifier = Modifier.padding(top = 10.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 14.sp,
+                )
+            }
+        }
     }
 }
 

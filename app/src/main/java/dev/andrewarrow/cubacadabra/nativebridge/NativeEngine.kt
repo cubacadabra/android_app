@@ -18,6 +18,7 @@ internal object NativeEngine {
         strafe: Float,
         sprint: Boolean,
         jump: Boolean,
+        climb: Boolean,
         lookX: Float,
         lookY: Float,
         zoomDelta: Float,

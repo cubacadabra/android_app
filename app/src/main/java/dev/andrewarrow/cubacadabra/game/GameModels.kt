@@ -52,6 +52,7 @@ data class GameUiState(
     val loginInProgress: Boolean = false,
     val loginErrorMessage: String? = null,
     val selectedGameID: String = "first-game",
+    val selectedGameCatalogID: String = "first-game",
     val isSelectingGame: Boolean = false,
     val selectingGameID: String? = null,
     val gameSelectionError: String? = null,

@@ -36,7 +36,12 @@ data class GameCatalogEntry(
     val id: String,
     val title: String,
     val subtitle: String,
-)
+    val version: String? = null,
+    val packageBaseUrl: String? = null,
+) {
+    val catalogID: String
+        get() = packageBaseUrl?.let { "remote-$it" } ?: id
+}
 
 object GameCatalog {
     val available = listOf(
