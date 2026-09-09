@@ -4,14 +4,18 @@ import android.view.Surface
 
 internal object NativeEngine {
     init {
-        System.loadLibrary("cubacadabra_engine")
+        System.loadLibrary("cubacadabra_client")
         System.loadLibrary("cubacadabra_jni")
     }
 
-    external fun nativeCreate(): Long
+    external fun nativeCreate(manifest: ByteArray, script: ByteArray): Long
     external fun nativeDestroy(engine: Long)
-    external fun nativeLoad(engine: Long, bytes: ByteArray, packageManifest: Boolean): Boolean
-    external fun nativeScriptError(engine: Long): ByteArray
+    external fun nativeTransportConnected(engine: Long)
+    external fun nativeTransportDisconnected(engine: Long)
+    external fun nativeRequestTransport(engine: Long)
+    external fun nativeReceiveTransportMessage(engine: Long, message: ByteArray): Boolean
+    external fun nativeSetIgnoredPlayerIds(engine: Long, playerIds: ByteArray): Boolean
+    external fun nativePollClientAction(engine: Long): ByteArray?
     external fun nativeSetInput(
         engine: Long,
         forward: Float,
@@ -39,11 +43,6 @@ internal object NativeEngine {
     external fun nativeUiEvent(engine: Long): ByteArray
     external fun nativeStep(engine: Long, delta: Float)
     external fun nativeReadFrame(engine: Long): FloatArray
-    external fun nativeSetRemotePlayers(engine: Long, players: FloatArray)
-    external fun nativeApplyRemoteUpdate(engine: Long, update: ByteArray): Boolean
-    external fun nativeResetRemoteSession(engine: Long)
-    external fun nativeReceiveNetworkMessage(engine: Long, message: ByteArray): Boolean
-    external fun nativePollNetworkMessage(engine: Long): ByteArray?
     external fun nativePollAudioMessage(engine: Long): ByteArray?
     external fun nativeCreateRenderer(engine: Long, surface: Surface, width: Float, height: Float): Long
     external fun nativeResizeRenderer(renderer: Long, width: Float, height: Float)
@@ -63,7 +62,6 @@ internal object NativeEngine {
     external fun nativeAppearanceRevision(engine: Long): Int
     external fun nativeStartWorld(engine: Long, world: Int): Boolean
     external fun nativePlayerRespawnEventId(engine: Long): Int
-    external fun nativeReconcilePlayer(engine: Long, x: Float, y: Float, z: Float, yaw: Float)
     external fun nativeSetBuildBlockCount(engine: Long, count: Int)
     external fun nativeSetBuildBlock(engine: Long, index: Int, x: Float, y: Float, z: Float, width: Float, height: Float, depth: Float, color: Int, rotation: Int)
 }

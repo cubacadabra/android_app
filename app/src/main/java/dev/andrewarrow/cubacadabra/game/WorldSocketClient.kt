@@ -55,6 +55,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     var onUsername: (UsernameEvent) -> Unit = {}
     var onExperience: (ExperienceEvent) -> Unit = {}
     var onGameMessage: (ByteArray) -> Unit = {}
+    var onRawMessage: (ByteArray) -> Unit = {}
 
     fun connect(nextWorldId: String) {
         val normalized = nextWorldId.trim()
@@ -122,6 +123,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             if (webSocket != socket || stopped) return
             scope.launch {
                 if (webSocket != socket || stopped) return@launch
+                onRawMessage(text.toByteArray(StandardCharsets.UTF_8))
                 handle(JSONObject(text), webSocket)
             }
         }
@@ -274,6 +276,14 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             message.put("expectedSequence", expectedSequence)
         }
         sendJSONMessage(message)
+    }
+
+    fun sendRawText(message: String) {
+        val current = socket ?: run {
+            Log.w(TAG, "client message dropped: no socket world=$worldId stopped=$stopped")
+            return
+        }
+        if (!current.send(message)) Log.w(TAG, "client message send failed world=$worldId")
     }
 
     private fun sendJSONMessage(message: JSONObject) {

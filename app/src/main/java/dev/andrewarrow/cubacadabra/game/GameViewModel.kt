@@ -79,16 +79,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lookY = 0f
     private var zoomDelta = 0f
     private var uiViewport: UiViewport? = null
-    private var connectedWorldId: String? = null
-    private var pendingSessionWorldId: String? = null
+    private var clientTransportConnected = false
     private val remotes = sortedMapOf<String, RemotePlayerState>()
     private val remotePlayerNames = sortedMapOf<String, String>()
     private val remotePlayerUserIDs = sortedMapOf<String, String>()
-    private var remoteSequence = 0L
-    private var remoteRosterDirty = true
 
     init {
-        socket.onStateChange = { state -> update { copy(connectionState = state) } }
+        socket.onStateChange = { state ->
+            if (state == WorldConnectionState.CONNECTED && !clientTransportConnected) {
+                clientTransportConnected = true
+                if (engine != 0L) NativeEngine.nativeTransportConnected(engine)
+            } else if (state != WorldConnectionState.CONNECTED && clientTransportConnected) {
+                clientTransportConnected = false
+                if (engine != 0L) NativeEngine.nativeTransportDisconnected(engine)
+            }
+            update { copy(connectionState = state) }
+        }
         socket.onPresence = ::handlePresence
         socket.onUsername = ::handleUsername
         socket.onSession = { event ->
@@ -111,17 +117,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         socket.onMovement = { event -> viewModelScope.launch(Dispatchers.Main.immediate) {
-            if (event.isSelf) {
-                if (event.corrected && engine != 0L) {
-                    NativeEngine.nativeReconcilePlayer(
-                        engine,
-                        event.player.position.x,
-                        event.player.position.y,
-                        event.player.position.z,
-                        event.player.yaw,
-                    )
-                }
-            } else {
+            if (!event.isSelf) {
                 val previous = remotes[event.playerId]
                 remotes[event.playerId] = RemotePlayerState(
                     username = previous?.username ?: remotePlayerNames[event.playerId]
@@ -132,12 +128,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                     appearance = previous?.appearance,
                 )
-                remoteRosterDirty = true
             }
         } }
         socket.onExperience = ::handleExperience
-        socket.onGameMessage = { data ->
-            if (engine != 0L) NativeEngine.nativeReceiveNetworkMessage(engine, data)
+        socket.onGameMessage = {}
+        socket.onRawMessage = { data ->
+            if (engine != 0L) NativeEngine.nativeReceiveTransportMessage(engine, data)
         }
         load()
     }
@@ -186,19 +182,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun createEngine(loaded: LoadedGamePackage): Long {
         packageImageAtlas = GameImageAtlasBuilder.make(loaded.imageAssets)
-        val created = NativeEngine.nativeCreate()
+        val created = NativeEngine.nativeCreate(
+            loaded.manifest.toByteArray(StandardCharsets.UTF_8),
+            loaded.script.toByteArray(StandardCharsets.UTF_8),
+        )
         check(created != 0L) { "The Rust game engine could not be created." }
         try {
-            check(NativeEngine.nativeLoad(created, loaded.manifest.toByteArray(), true)) {
-                "The Rust game engine could not load the game manifest."
-            }
-            if (!NativeEngine.nativeLoad(created, loaded.script.toByteArray(), false)) {
-                val details = String(NativeEngine.nativeScriptError(created), StandardCharsets.UTF_8).trim()
-                throw GamePackageException(
-                    if (details.isEmpty()) "The Luau game script could not be loaded."
-                    else "The Luau game script could not be loaded: $details",
-                )
-            }
             uiViewport?.let { viewport ->
                 NativeEngine.nativeSetUiViewport(
                     created,
@@ -223,7 +212,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun retry() {
         socket.disconnect()
         gameAudio.stopAll()
-        connectedWorldId = null
+        clientTransportConnected = false
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
         renderer = 0
         if (engine != 0L) NativeEngine.nativeDestroy(engine)
@@ -259,7 +248,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         lastFrameNanos = frameTimeNanos
         if (previous == null) return
         val delta = min((frameTimeNanos - previous) / 1_000_000_000f, 0.05f).coerceAtLeast(0f)
-        syncRemotePlayers(currentEngine)
+        dispatchClientActions(currentEngine)
         val settingsOpen = _state.value.usernameEditorOpen
         NativeEngine.nativeSetInput(currentEngine, if (settingsOpen) 0f else forward, if (settingsOpen) 0f else strafe,
             if (settingsOpen) false else _state.value.sprinting, if (settingsOpen) false else jumpQueued,
@@ -267,7 +256,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (settingsOpen) 0f else lookX, if (settingsOpen) 0f else lookY, if (settingsOpen) 0f else zoomDelta)
         jumpQueued = false; lookX = 0f; lookY = 0f; zoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
-        flushNetworkMessages(currentEngine)
+        dispatchClientActions(currentEngine)
         flushAudioMessages(currentEngine)
         handleUiEvents(currentEngine)
         val nextFrame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()
@@ -292,33 +281,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun flushNetworkMessages(currentEngine: Long) {
+    private fun dispatchClientActions(currentEngine: Long) {
+        val ignoredIDs = JSONArray(blockedIDs().toList()).toString().toByteArray(StandardCharsets.UTF_8)
+        NativeEngine.nativeSetIgnoredPlayerIds(currentEngine, ignoredIDs)
         while (true) {
-            val data = NativeEngine.nativePollNetworkMessage(currentEngine) ?: break
-            val message = runCatching { JSONObject(String(data, StandardCharsets.UTF_8)) }.getOrNull() ?: continue
-            val channel = message.optString("channel").takeIf { it.isNotEmpty() } ?: continue
-            val expectedSequence = when (val value = message.opt("expectedSequence")) {
-                is Number -> {
-                    val doubleValue = value.toDouble()
-                    if (doubleValue.isFinite() && doubleValue >= 0.0 &&
-                        doubleValue == doubleValue.toLong().toDouble()
-                    ) doubleValue.toLong() else null
+            val action = NativeEngine.nativePollClientAction(currentEngine) ?: break
+            if (action.isEmpty()) continue
+            val payload = String(action, 1, action.size - 1, StandardCharsets.UTF_8)
+            when (action[0].toInt()) {
+                1 -> {
+                    remotes.clear()
+                    remotePlayerNames.clear()
+                    remotePlayerUserIDs.clear()
+                    update { copy(activePlayers = emptyList()) }
+                    socket.connect(payload)
                 }
-                else -> null
+                2 -> socket.sendRawText(payload)
             }
-            val type = if (expectedSequence != null) {
-                "game_state_compare_set"
-            } else if (message.optBoolean("retained", false)) {
-                "game_state_set"
-            } else {
-                "game_message"
-            }
-            socket.sendGameMessage(
-                type = type,
-                channel = channel,
-                payload = if (message.has("payload")) message.get("payload") else JSONObject.NULL,
-                expectedSequence = expectedSequence,
-            )
         }
     }
 
@@ -604,13 +583,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun handleExperience(event: ExperienceEvent) {
         Log.d(TAG, "experience event type=${event.type} kind=${event.kind} phase=${event.phase} blocks=${event.blocks.size}")
         if (event.type == "experience_launch" && event.playerIds.contains(socket.playerId)) {
-            val session = event.sessionWorldId ?: return
-            val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("real-game") ?: -1
-            if (index >= 0 && NativeEngine.nativeStartWorld(engine, index)) {
-                pendingSessionWorldId = session
-                update { copy(worldId = "real-game", buildPhase = "build", buildPrompt = "", buildBlocks = emptyList()) }
-                connectWorld("real-game")
-            }
+            update { copy(buildPhase = "build", buildPrompt = "", buildBlocks = emptyList()) }
             return
         }
         if (event.type == "experience_state" && event.kind == "lobby") {
@@ -702,7 +675,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun returnToLobby() {
         if (!lobbyEnabled) return
-        pendingSessionWorldId = null
         val index = _state.value.packageData?.runtimeWorldIds()?.indexOf("lobby") ?: -1
         if (index >= 0 && NativeEngine.nativeStartWorld(engine, index)) {
             update { copy(worldId = "lobby", buildPhase = "build", buildPrompt = "", buildBlocks = emptyList(), lobbyLaunchStartsAt = null) }
@@ -810,6 +782,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(TAG, "leaving main menu and entering world=${_state.value.worldId}")
         lastFrameNanos = null
         update { copy(isMainMenu = false) }
+        NativeEngine.nativeRequestTransport(engine)
         connectWorld(_state.value.worldId)
     }
 
@@ -846,8 +819,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 engine = nextEngine
                 socket.disconnect()
                 socket.setGameID(game.id)
-                connectedWorldId = null
-                pendingSessionWorldId = null
+                clientTransportConnected = false
                 remotes.clear()
                 remotePlayerNames.clear()
                 remotePlayerUserIDs.clear()
@@ -902,14 +874,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         jumpQueued = false
         lastFrameNanos = null
         gameAudio.stopAll()
-        pendingSessionWorldId = null
         val packageData = _state.value.packageData
         val returnWorld = if (lobbyEnabled) "lobby" else packageData?.initialWorld
         val returnIndex = returnWorld?.let { packageData?.runtimeWorldIds()?.indexOf(it) } ?: -1
         val movedToReturnWorld = returnIndex >= 0 && NativeEngine.nativeStartWorld(engine, returnIndex)
         setNativeBuildBlocks(emptyList())
         socket.disconnect()
-        connectedWorldId = null
         update {
             copy(
                 isMainMenu = true,
@@ -980,7 +950,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 remotes.remove(event.playerId)
                 remotePlayerNames.remove(event.playerId)
                 remotePlayerUserIDs.remove(event.playerId)
-                remoteRosterDirty = true
             } else {
                 event.username?.let { remotePlayerNames[event.playerId] = it }
                 event.userId?.let { remotePlayerUserIDs[event.playerId] = it }
@@ -998,16 +967,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         ),
                         appearance = event.appearance,
                     )
-                    remoteRosterDirty = true
                 } else if (event.type == "appearance") {
                     remotes[event.playerId]?.let { current ->
                         remotes[event.playerId] = current.copy(appearance = event.appearance)
-                        remoteRosterDirty = true
                     }
                 } else if (event.type == "player_name") {
                     remotes[event.playerId]?.let { current ->
                         remotes[event.playerId] = current.copy(username = username)
-                        remoteRosterDirty = true
                     }
                 }
             }
@@ -1024,42 +990,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             kotlinx.coroutines.delay(4_000)
             update { if (presenceNotice?.id == notice.id) copy(presenceNotice = null) else this }
-        }
-    }
-
-    private fun syncRemotePlayers(currentEngine: Long) {
-        if (!remoteRosterDirty) return
-        val players = JSONArray()
-        if (_state.value.worldId != "settings") {
-            remotes
-                .filter { !blockedIDs().contains(remotePlayerUserIDs[it.key] ?: it.key) }
-                .forEach { (playerID, remote) ->
-                    val player = remote.player
-                    players.put(JSONObject().apply {
-                        put("id", playerID)
-                        put("username", remote.username)
-                        put("generation", player.generation)
-                        put("position", JSONArray().apply {
-                            put(player.position.x)
-                            put(player.position.y)
-                            put(player.position.z)
-                        })
-                        put("yaw", player.yaw)
-                        put("moving", player.moving)
-                        put("sprinting", player.sprinting)
-                        remote.appearance?.let { put("appearance", JSONObject(it.toString())) }
-                    })
-                }
-        }
-        remoteSequence += 1L
-        val update = JSONObject().apply {
-            put("version", 1)
-            put("sequence", remoteSequence)
-            if (_state.value.worldId != "settings") put("worldId", _state.value.worldId)
-            put("players", players)
-        }
-        if (NativeEngine.nativeApplyRemoteUpdate(currentEngine, update.toString().toByteArray(StandardCharsets.UTF_8))) {
-            remoteRosterDirty = false
         }
     }
 
@@ -1173,20 +1103,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun connectWorld(visualWorldId: String) {
-        val networkWorldId = when {
-            visualWorldId == "settings" -> "lobby"
-            visualWorldId == "real-game" && pendingSessionWorldId != null -> pendingSessionWorldId!!
-            else -> visualWorldId
-        }
-        if (networkWorldId == connectedWorldId) return
-        connectedWorldId = networkWorldId
-        remotes.clear()
-        remotePlayerNames.clear()
-        remotePlayerUserIDs.clear()
-        remoteSequence = 0L
-        remoteRosterDirty = true
-        if (engine != 0L) NativeEngine.nativeResetRemoteSession(engine)
-        socket.connect(networkWorldId)
+        val activeWorldId = _state.value.packageData?.runtimeWorldIds()
+            ?.getOrNull(NativeEngine.nativeReadFrame(engine).decodeFrame().activeWorldIndex)
+        if (activeWorldId == visualWorldId) dispatchClientActions(engine)
     }
 
     private fun update(transform: GameUiState.() -> GameUiState) { _state.value = transform(_state.value) }

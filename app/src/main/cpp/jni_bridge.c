@@ -7,19 +7,23 @@
 
 typedef struct CubacadabraEngine CubacadabraEngine;
 typedef struct CubacadabraRenderer CubacadabraRenderer;
+typedef struct CubacadabraClient CubacadabraClient;
 
-extern CubacadabraEngine *engine_create(void);
-extern void engine_destroy(CubacadabraEngine *engine);
-extern uint8_t *engine_script_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
-extern uint8_t engine_load_script_buffer(CubacadabraEngine *engine);
-extern const uint8_t *engine_script_error_ptr(const CubacadabraEngine *engine);
-extern uintptr_t engine_script_error_len(const CubacadabraEngine *engine);
-extern uint8_t *engine_package_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
-extern uint8_t engine_load_package_buffer(CubacadabraEngine *engine);
+extern CubacadabraClient *client_create(const uint8_t *, uintptr_t, const uint8_t *, uintptr_t);
+extern void client_destroy(CubacadabraClient *);
+extern CubacadabraEngine *client_engine(CubacadabraClient *);
+extern void client_transport_connected(CubacadabraClient *);
+extern void client_transport_disconnected(CubacadabraClient *);
+extern void client_request_transport(CubacadabraClient *);
+extern uint8_t client_receive_text(CubacadabraClient *, const uint8_t *, uintptr_t);
+extern uint8_t client_set_ignored_player_ids_json(CubacadabraClient *, const uint8_t *, uintptr_t);
+extern uint8_t client_poll_action(CubacadabraClient *);
+extern const uint8_t *client_action_ptr(const CubacadabraClient *);
+extern uintptr_t client_action_len(const CubacadabraClient *);
+
 extern uint8_t *engine_username_buffer_ptr(CubacadabraEngine *engine, uintptr_t length);
 extern uint8_t engine_load_username_buffer(CubacadabraEngine *engine);
 extern uint8_t engine_start_world(CubacadabraEngine *, uintptr_t);
-extern void engine_reconcile_player(CubacadabraEngine *, float, float, float, float);
 extern void engine_set_build_block_count(CubacadabraEngine *, uintptr_t);
 extern void engine_set_build_block(CubacadabraEngine *, uintptr_t, float, float, float, float, float, float, uint32_t, uint8_t);
 extern void engine_set_input(CubacadabraEngine *, float, float, uint8_t, uint8_t, uint8_t, float, float, float);
@@ -36,14 +40,6 @@ extern uintptr_t engine_snapshot_stride(void);
 extern uintptr_t engine_agent_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_local_agent_count(const CubacadabraEngine *engine);
 extern uintptr_t engine_remote_player_count(const CubacadabraEngine *engine);
-extern void engine_set_remote_player_count(CubacadabraEngine *, uintptr_t);
-extern void engine_set_remote_player(CubacadabraEngine *, uintptr_t, float, float, float, float, uint8_t, uint8_t);
-extern uint8_t engine_apply_remote_update_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
-extern void engine_reset_remote_session(CubacadabraEngine *);
-extern uint8_t engine_receive_network_message_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
-extern uint8_t engine_network_poll_message(CubacadabraEngine *);
-extern const uint8_t *engine_network_message_ptr(const CubacadabraEngine *);
-extern uintptr_t engine_network_message_len(const CubacadabraEngine *);
 extern uint8_t engine_audio_poll_message(CubacadabraEngine *);
 extern const uint8_t *engine_audio_message_ptr(const CubacadabraEngine *);
 extern uintptr_t engine_audio_message_len(const CubacadabraEngine *);
@@ -74,39 +70,117 @@ typedef struct {
     ANativeWindow *window;
 } AndroidRenderer;
 
-static CubacadabraEngine *engine(jlong value) { return (CubacadabraEngine *)(intptr_t)value; }
+typedef struct {
+    CubacadabraClient *client;
+    CubacadabraEngine *engine;
+} AndroidClient;
 
-static jlong JNICALL nativeCreate(JNIEnv *env, jclass klass) {
-    (void)env; (void)klass;
-    return (jlong)(intptr_t)engine_create();
+static AndroidClient *android_client(jlong value) { return (AndroidClient *)(intptr_t)value; }
+static CubacadabraEngine *engine(jlong value) {
+    AndroidClient *holder = android_client(value);
+    return holder ? holder->engine : NULL;
+}
+
+static jlong JNICALL nativeCreate(JNIEnv *env, jclass klass, jbyteArray manifest, jbyteArray script) {
+    (void)klass;
+    jsize manifestLength = (*env)->GetArrayLength(env, manifest);
+    jsize scriptLength = (*env)->GetArrayLength(env, script);
+    jbyte *manifestSource = (*env)->GetByteArrayElements(env, manifest, NULL);
+    jbyte *scriptSource = (*env)->GetByteArrayElements(env, script, NULL);
+    if ((!manifestSource && manifestLength > 0) || (!scriptSource && scriptLength > 0)) {
+        if (manifestSource) (*env)->ReleaseByteArrayElements(env, manifest, manifestSource, JNI_ABORT);
+        if (scriptSource) (*env)->ReleaseByteArrayElements(env, script, scriptSource, JNI_ABORT);
+        return 0;
+    }
+    CubacadabraClient *client = client_create(
+        (const uint8_t *)manifestSource, (uintptr_t)manifestLength,
+        (const uint8_t *)scriptSource, (uintptr_t)scriptLength
+    );
+    if (manifestSource) (*env)->ReleaseByteArrayElements(env, manifest, manifestSource, JNI_ABORT);
+    if (scriptSource) (*env)->ReleaseByteArrayElements(env, script, scriptSource, JNI_ABORT);
+    if (!client) return 0;
+    AndroidClient *holder = (AndroidClient *)calloc(1, sizeof(AndroidClient));
+    if (!holder) {
+        client_destroy(client);
+        return 0;
+    }
+    holder->client = client;
+    holder->engine = client_engine(client);
+    if (!holder->engine) {
+        client_destroy(client);
+        free(holder);
+        return 0;
+    }
+    return (jlong)(intptr_t)holder;
 }
 
 static void JNICALL nativeDestroy(JNIEnv *env, jclass klass, jlong value) {
     (void)env; (void)klass;
-    engine_destroy(engine(value));
+    AndroidClient *holder = android_client(value);
+    if (!holder) return;
+    client_destroy(holder->client);
+    free(holder);
 }
 
-static jboolean JNICALL nativeLoad(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes, jboolean package) {
+static void JNICALL nativeTransportConnected(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    AndroidClient *holder = android_client(value);
+    if (holder) client_transport_connected(holder->client);
+}
+
+static void JNICALL nativeTransportDisconnected(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    AndroidClient *holder = android_client(value);
+    if (holder) client_transport_disconnected(holder->client);
+}
+
+static void JNICALL nativeRequestTransport(JNIEnv *env, jclass klass, jlong value) {
+    (void)env; (void)klass;
+    AndroidClient *holder = android_client(value);
+    if (holder) client_request_transport(holder->client);
+}
+
+static jboolean JNICALL nativeReceiveTransportMessage(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
     (void)klass;
+    AndroidClient *holder = android_client(value);
+    if (!holder) return JNI_FALSE;
     jsize length = (*env)->GetArrayLength(env, bytes);
-    uint8_t *destination = package
-        ? engine_package_buffer_ptr(engine(value), (uintptr_t)length)
-        : engine_script_buffer_ptr(engine(value), (uintptr_t)length);
-    if (!destination) return 0;
     jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
-    if (!source) return 0;
-    memcpy(destination, source, (size_t)length);
-    (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
-    return package ? engine_load_package_buffer(engine(value)) : engine_load_script_buffer(engine(value));
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t accepted = client_receive_text(holder->client, (const uint8_t *)source, (uintptr_t)length);
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return accepted ? JNI_TRUE : JNI_FALSE;
 }
 
-static jbyteArray JNICALL nativeScriptError(JNIEnv *env, jclass klass, jlong value) {
+static jboolean JNICALL nativeSetIgnoredPlayerIds(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
     (void)klass;
-    const uintptr_t length = engine_script_error_len(engine(value));
-    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
-    if (!result || length == 0) return result;
-    const uint8_t *source = engine_script_error_ptr(engine(value));
-    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
+    AndroidClient *holder = android_client(value);
+    if (!holder) return JNI_FALSE;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t accepted = client_set_ignored_player_ids_json(
+        holder->client, (const uint8_t *)source, (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return accepted ? JNI_TRUE : JNI_FALSE;
+}
+
+static jbyteArray JNICALL nativePollClientAction(JNIEnv *env, jclass klass, jlong value) {
+    (void)klass;
+    AndroidClient *holder = android_client(value);
+    if (!holder) return NULL;
+    uint8_t kind = client_poll_action(holder->client);
+    if (kind == 0) return NULL;
+    uintptr_t payloadLength = client_action_len(holder->client);
+    jbyteArray result = (*env)->NewByteArray(env, (jsize)(payloadLength + 1));
+    if (!result) return NULL;
+    jbyte kindByte = (jbyte)kind;
+    (*env)->SetByteArrayRegion(env, result, 0, 1, &kindByte);
+    const uint8_t *payload = client_action_ptr(holder->client);
+    if (payload && payloadLength > 0) {
+        (*env)->SetByteArrayRegion(env, result, 1, (jsize)payloadLength, (const jbyte *)payload);
+    }
     return result;
 }
 
@@ -181,65 +255,6 @@ static jfloatArray JNICALL nativeReadFrame(JNIEnv *env, jclass klass, jlong valu
     }
     (*env)->SetFloatArrayRegion(env, result, 0, length, values);
     free(values);
-    return result;
-}
-
-static void JNICALL nativeSetRemotePlayers(JNIEnv *env, jclass klass, jlong value, jfloatArray players) {
-    (void)klass;
-    jsize length = (*env)->GetArrayLength(env, players);
-    jfloat *values = (*env)->GetFloatArrayElements(env, players, NULL);
-    if (!values) return;
-    uintptr_t count = (uintptr_t)length / 6;
-    engine_set_remote_player_count(engine(value), count);
-    for (uintptr_t index = 0; index < count; index++) {
-        const jfloat *player = values + index * 6;
-        engine_set_remote_player(engine(value), index, player[0], player[1], player[2], player[3],
-                                 player[4] > 0.5f, player[5] > 0.5f);
-    }
-    (*env)->ReleaseFloatArrayElements(env, players, values, JNI_ABORT);
-}
-
-static jboolean JNICALL nativeApplyRemoteUpdate(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
-    (void)klass;
-    jsize length = (*env)->GetArrayLength(env, bytes);
-    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
-    if (!source && length > 0) return JNI_FALSE;
-    uint8_t applied = engine_apply_remote_update_json(
-        engine(value),
-        (const uint8_t *)source,
-        (uintptr_t)length
-    );
-    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
-    return applied ? JNI_TRUE : JNI_FALSE;
-}
-
-static void JNICALL nativeResetRemoteSession(JNIEnv *env, jclass klass, jlong value) {
-    (void)env; (void)klass;
-    engine_reset_remote_session(engine(value));
-}
-
-static jboolean JNICALL nativeReceiveNetworkMessage(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
-    (void)klass;
-    jsize length = (*env)->GetArrayLength(env, bytes);
-    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
-    if (!source && length > 0) return JNI_FALSE;
-    uint8_t accepted = engine_receive_network_message_json(
-        engine(value),
-        (const uint8_t *)source,
-        (uintptr_t)length
-    );
-    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
-    return accepted ? JNI_TRUE : JNI_FALSE;
-}
-
-static jbyteArray JNICALL nativePollNetworkMessage(JNIEnv *env, jclass klass, jlong value) {
-    (void)klass;
-    if (!engine_network_poll_message(engine(value))) return NULL;
-    const uintptr_t length = engine_network_message_len(engine(value));
-    jbyteArray result = (*env)->NewByteArray(env, (jsize)length);
-    if (!result || length == 0) return result;
-    const uint8_t *source = engine_network_message_ptr(engine(value));
-    if (source) (*env)->SetByteArrayRegion(env, result, 0, (jsize)length, (const jbyte *)source);
     return result;
 }
 
@@ -376,11 +391,6 @@ static jint JNICALL nativePlayerRespawnEventId(JNIEnv *env, jclass klass, jlong 
     return (jint)engine_player_respawn_event_id(engine(value));
 }
 
-static void JNICALL nativeReconcilePlayer(JNIEnv *env, jclass klass, jlong value, jfloat x, jfloat y, jfloat z, jfloat yaw) {
-    (void)env; (void)klass;
-    engine_reconcile_player(engine(value), x, y, z, yaw);
-}
-
 static void JNICALL nativeSetBuildBlockCount(JNIEnv *env, jclass klass, jlong value, jint count) {
     (void)env; (void)klass;
     engine_set_build_block_count(engine(value), (uintptr_t)(count < 0 ? 0 : count));
@@ -394,10 +404,14 @@ static void JNICALL nativeSetBuildBlock(JNIEnv *env, jclass klass, jlong value, 
 }
 
 static JNINativeMethod methods[] = {
-    {"nativeCreate", "()J", (void *)nativeCreate},
+    {"nativeCreate", "([B[B)J", (void *)nativeCreate},
     {"nativeDestroy", "(J)V", (void *)nativeDestroy},
-    {"nativeLoad", "(J[BZ)Z", (void *)nativeLoad},
-    {"nativeScriptError", "(J)[B", (void *)nativeScriptError},
+    {"nativeTransportConnected", "(J)V", (void *)nativeTransportConnected},
+    {"nativeTransportDisconnected", "(J)V", (void *)nativeTransportDisconnected},
+    {"nativeRequestTransport", "(J)V", (void *)nativeRequestTransport},
+    {"nativeReceiveTransportMessage", "(J[B)Z", (void *)nativeReceiveTransportMessage},
+    {"nativeSetIgnoredPlayerIds", "(J[B)Z", (void *)nativeSetIgnoredPlayerIds},
+    {"nativePollClientAction", "(J)[B", (void *)nativePollClientAction},
     {"nativeSetInput", "(JFFZZZFFF)V", (void *)nativeSetInput},
     {"nativeSetUiViewport", "(JFFFFFFF)V", (void *)nativeSetUiViewport},
     {"nativeSetAuthenticated", "(JZ)V", (void *)nativeSetAuthenticated},
@@ -406,11 +420,6 @@ static JNINativeMethod methods[] = {
     {"nativeUiEvent", "(J)[B", (void *)nativeUiEvent},
     {"nativeStep", "(JF)V", (void *)nativeStep},
     {"nativeReadFrame", "(J)[F", (void *)nativeReadFrame},
-    {"nativeSetRemotePlayers", "(J[F)V", (void *)nativeSetRemotePlayers},
-    {"nativeApplyRemoteUpdate", "(J[B)Z", (void *)nativeApplyRemoteUpdate},
-    {"nativeResetRemoteSession", "(J)V", (void *)nativeResetRemoteSession},
-    {"nativeReceiveNetworkMessage", "(J[B)Z", (void *)nativeReceiveNetworkMessage},
-    {"nativePollNetworkMessage", "(J)[B", (void *)nativePollNetworkMessage},
     {"nativePollAudioMessage", "(J)[B", (void *)nativePollAudioMessage},
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
@@ -424,7 +433,6 @@ static JNINativeMethod methods[] = {
     {"nativeAppearanceRevision", "(J)I", (void *)nativeAppearanceRevision},
     {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
     {"nativePlayerRespawnEventId", "(J)I", (void *)nativePlayerRespawnEventId},
-    {"nativeReconcilePlayer", "(JFFFF)V", (void *)nativeReconcilePlayer},
     {"nativeSetBuildBlockCount", "(JI)V", (void *)nativeSetBuildBlockCount},
     {"nativeSetBuildBlock", "(JIFFFFFFII)V", (void *)nativeSetBuildBlock},
 };
