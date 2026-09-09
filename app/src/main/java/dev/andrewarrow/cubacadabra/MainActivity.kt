@@ -5,24 +5,30 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModelProvider
+import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import dev.andrewarrow.cubacadabra.ui.CubacadabraApp
 import dev.andrewarrow.cubacadabra.ui.CubacadabraTheme
 
 class MainActivity : ComponentActivity() {
+    private lateinit var appModel: AppViewModel
     private lateinit var gameModel: GameViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         gameModel = ViewModelProvider(this)[GameViewModel::class.java]
-        gameModel.attachActivity(this)
+        appModel = ViewModelProvider(this)[AppViewModel::class.java]
+        appModel.attachActivity(this)
+        gameModel.onAccountRequested = appModel::requestSignIn
+        gameModel.onSignOutRequested = appModel::signOut
+        gameModel.onSessionRejected = appModel::gameSessionRejected
         enableEdgeToEdge()
-        setContent { CubacadabraTheme { CubacadabraApp(gameModel) } }
+        setContent { CubacadabraTheme { CubacadabraApp(gameModel, appModel) } }
     }
 
     override fun onResume() {
         super.onResume()
-        if (::gameModel.isInitialized) gameModel.refreshAuthentication()
+        if (::appModel.isInitialized) appModel.refreshAuthentication()
     }
 
     override fun onStop() {
@@ -31,7 +37,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (::gameModel.isInitialized) gameModel.detachActivity(this)
+        if (::appModel.isInitialized) appModel.detachActivity(this)
         super.onDestroy()
     }
 }

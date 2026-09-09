@@ -45,8 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.andrewarrow.cubacadabra.R
-import dev.andrewarrow.cubacadabra.game.GameUiState
-import dev.andrewarrow.cubacadabra.game.GameViewModel
+import dev.andrewarrow.cubacadabra.app.AppUiState
+import dev.andrewarrow.cubacadabra.app.AppViewModel
 
 internal data class MorphOption(
     val bodyID: String,
@@ -66,7 +66,7 @@ internal data class MorphOption(
 }
 
 @Composable
-internal fun MorphSelectionScreen(state: GameUiState, model: GameViewModel) {
+internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
     var selectedBodyID by remember { mutableStateOf(MorphOption.fromBodyID(state.authUser?.bodyID).bodyID) }
 
     LaunchedEffect(state.authUser?.bodyID) {

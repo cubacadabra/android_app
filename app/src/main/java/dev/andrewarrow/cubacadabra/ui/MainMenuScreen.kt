@@ -47,38 +47,56 @@ import dev.andrewarrow.cubacadabra.game.CubeCatalogService
 import dev.andrewarrow.cubacadabra.game.GameCatalog
 import dev.andrewarrow.cubacadabra.game.GameCatalogEntry
 import dev.andrewarrow.cubacadabra.game.GameUiState
+import dev.andrewarrow.cubacadabra.app.AppUiState
+import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import dev.andrewarrow.cubacadabra.game.RemotePlayerSummary
 import kotlinx.coroutines.CancellationException
 
 @Composable
-internal fun MainMenuScreen(model: GameViewModel) {
-    val state by model.state.collectAsStateWithLifecycle()
-    var destination by remember { mutableStateOf(HomeDestination.Home) }
+internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
+    val appState by appModel.state.collectAsStateWithLifecycle()
+    var destination by remember(appState.authUser?.id) { mutableStateOf(HomeDestination.Home) }
     BackHandler(enabled = destination != HomeDestination.Home) {
         if (destination == HomeDestination.More) model.clearGameSelectionError()
         destination = HomeDestination.Home
     }
 
     when (destination) {
-        HomeDestination.Home -> HomeMenu(
-            state,
-            model,
-            onUsername = { destination = HomeDestination.Username },
-            onMorph = {
-                model.clearMorphMessage()
-                destination = HomeDestination.Morph
-            },
-            onSafety = { destination = HomeDestination.Safety },
-            onMore = {
-                model.clearGameSelectionError()
-                destination = HomeDestination.More
-            },
-        )
-        HomeDestination.More -> MoreCubesScreen(state, model)
-        HomeDestination.Username -> ProfileUsernameScreen(state, model)
-        HomeDestination.Morph -> MorphSelectionScreen(state, model)
-        HomeDestination.Safety -> SafetyCenterScreen(state, model)
+        HomeDestination.Home -> {
+            val gameState by model.state.collectAsStateWithLifecycle()
+            HomeMenu(
+                gameState,
+                appState,
+                onSelectGame = model::selectGame,
+                onSignIn = {
+                    model.exitToMainMenu()
+                    appModel.requestSignIn()
+                },
+                onSignOut = appModel::signOut,
+                onUsername = { destination = HomeDestination.Username },
+                onMorph = {
+                    appModel.clearMorphMessage()
+                    destination = HomeDestination.Morph
+                },
+                onSafety = { destination = HomeDestination.Safety },
+                onMore = {
+                    model.exitToMainMenu()
+                    model.clearGameSelectionError()
+                    destination = HomeDestination.More
+                },
+            )
+        }
+        HomeDestination.More -> {
+            val gameState by model.state.collectAsStateWithLifecycle()
+            MoreCubesScreen(gameState, model::selectGame)
+        }
+        HomeDestination.Username -> ProfileUsernameScreen(appState, appModel)
+        HomeDestination.Morph -> MorphSelectionScreen(appState, appModel)
+        HomeDestination.Safety -> {
+            val gameState by model.state.collectAsStateWithLifecycle()
+            SafetyCenterScreen(gameState, model)
+        }
     }
 }
 
@@ -87,7 +105,10 @@ private enum class HomeDestination { Home, More, Username, Morph, Safety }
 @Composable
 private fun HomeMenu(
     state: GameUiState,
-    model: GameViewModel,
+    appState: AppUiState,
+    onSelectGame: (GameCatalogEntry) -> Unit,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
     onUsername: () -> Unit,
     onMorph: () -> Unit,
     onSafety: () -> Unit,
@@ -140,26 +161,28 @@ private fun HomeMenu(
                         subtitle = game.subtitle,
                         loading = state.selectingGameID == game.catalogID,
                         enabled = !state.isSelectingGame,
-                        onClick = { model.selectGame(game) },
+                        onClick = { onSelectGame(game) },
                     )
                     if (index < GameCatalog.available.lastIndex) MenuDivider()
                 }
                 MenuDivider()
                 MenuRow("•••", "More", "Browse uploaded cubes", onMore)
             }
-            state.gameSelectionError?.let { error ->
+            (state.gameSelectionError ?: state.errorMessage)?.let { error ->
                 Text(error, modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
             }
             Text("ACCOUNT", modifier = Modifier.padding(top = 36.dp, bottom = 10.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
-            MenuGroup {
-                MenuRow("@", "Change your username", state.username.ifBlank { "Player" }, onUsername)
+            if (appState.isAuthenticated) MenuGroup {
+                MenuRow("@", "Change your username", appState.authUser?.username ?: "Player", onUsername)
                 MenuDivider()
-                MenuRow("♙", "Choose your morph", MorphOption.fromBodyID(state.authUser?.bodyID).label, onMorph)
+                MenuRow("♙", "Choose your morph", MorphOption.fromBodyID(appState.authUser?.bodyID).label, onMorph)
                 MenuDivider()
                 MenuRow("!", "Block or unblock players", "Players & safety", onSafety)
             }
-            if (state.isAuthenticated) {
+            if (appState.isAuthenticated) {
                 LogoutMenuRow(onClick = { showingLogoutConfirmation = true })
+            } else {
+                MenuGroup { MenuRow("@", "Sign in", "Manage your account", onSignIn) }
             }
         }
     }
@@ -173,7 +196,7 @@ private fun HomeMenu(
                 Button(
                     onClick = {
                         showingLogoutConfirmation = false
-                        model.signOut()
+                        onSignOut()
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
@@ -232,7 +255,7 @@ private fun GameMenuRow(
 }
 
 @Composable
-private fun MoreCubesScreen(state: GameUiState, model: GameViewModel) {
+private fun MoreCubesScreen(state: GameUiState, onSelectGame: (GameCatalogEntry) -> Unit) {
     val service = remember { CubeCatalogService() }
     var cubes by remember { mutableStateOf(emptyList<GameCatalogEntry>()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -308,7 +331,7 @@ private fun MoreCubesScreen(state: GameUiState, model: GameViewModel) {
                             subtitle = cube.subtitle,
                             loading = state.selectingGameID == cube.catalogID,
                             enabled = !state.isSelectingGame,
-                            onClick = { model.selectGame(cube) },
+                            onClick = { onSelectGame(cube) },
                         )
                         if (index < cubes.lastIndex) MenuDivider()
                     }
@@ -369,7 +392,7 @@ private fun MenuDivider() {
 }
 
 @Composable
-private fun ProfileUsernameScreen(state: GameUiState, model: GameViewModel) {
+private fun ProfileUsernameScreen(state: AppUiState, model: AppViewModel) {
     val profile = state.profileUsername
     val focusRequester = remember { FocusRequester() }
     Column(

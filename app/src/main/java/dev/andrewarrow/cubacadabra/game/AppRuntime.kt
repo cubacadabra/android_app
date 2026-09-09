@@ -16,7 +16,7 @@ data class AppProfileSnapshot(
 data class AppSnapshot(val sessionId: Long, val accountId: String?, val profile: AppProfileSnapshot)
 data class AppHttpEffect(val effectId: Long, val accountId: String, val method: String, val path: String, val body: String)
 
-/** Main-thread owned by GameViewModel. JSON shape errors are binding/build errors. */
+/** Main-thread owned by AppViewModel. JSON shape errors are binding/build errors. */
 class AppRuntime : AutoCloseable {
     private var handle = NativeEngine.nativeAppCreate().also { check(it != 0L) }
 

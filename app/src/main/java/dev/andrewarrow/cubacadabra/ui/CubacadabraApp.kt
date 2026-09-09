@@ -52,16 +52,26 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.andrewarrow.cubacadabra.app.AppUiState
+import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.GameUiState
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import kotlinx.coroutines.isActive
 
 @Composable
-fun CubacadabraApp(model: GameViewModel = viewModel()) {
+fun CubacadabraApp(model: GameViewModel = viewModel(), appModel: AppViewModel = viewModel()) {
+    val appState by appModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(model, appModel) {
+        appModel.start()
+        appModel.gameSession.collect { model.applyAccountSession(it) }
+    }
+    LaunchedEffect(appState.isRestoring) {
+        if (!appState.isRestoring && !appState.isAuthenticated) model.load()
+    }
     val state by model.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current as? Activity
-    LaunchedEffect(state.isLoading, state.errorMessage, state.isMainMenu) {
-        val orientation = if (state.isLoading || state.errorMessage != null || state.isMainMenu) {
+    LaunchedEffect(appState.isRestoring, state.isLoading, state.errorMessage, state.isMainMenu) {
+        val orientation = if (appState.isRestoring || state.isLoading || state.errorMessage != null || state.isMainMenu) {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -78,11 +88,11 @@ fun CubacadabraApp(model: GameViewModel = viewModel()) {
     }
     Box(Modifier.fillMaxSize()) {
         when {
-            state.isLoading -> LoadingScreen()
-            state.errorMessage != null -> ErrorScreen(state.errorMessage, model::retry)
-            state.isMainMenu -> MainMenuScreen(model)
+            appState.isRestoring -> LoadingScreen()
+            state.isMainMenu || state.isLoading || state.errorMessage != null -> MainMenuScreen(appModel, model)
             else -> GameScreen(state, model)
         }
+        if (appState.loginDialogOpen) LoginDialog(appState, appModel)
     }
 }
 
@@ -116,12 +126,11 @@ private fun GameScreen(state: GameUiState, model: GameViewModel) {
             }
         }
         if (state.usernameEditorOpen) UsernameEditorDialog(state, model)
-        if (state.loginDialogOpen) LoginDialog(state, model)
     }
 }
 
 @Composable
-private fun LoginDialog(state: GameUiState, model: GameViewModel) {
+private fun LoginDialog(state: AppUiState, model: AppViewModel) {
     var emailMode by remember(state.loginDialogOpen) { mutableStateOf(false) }
     var email by remember { mutableStateOf("play-review@cubacadabra.com") }
     var password by remember { mutableStateOf("testing") }
@@ -265,7 +274,7 @@ private fun LoadingScreen() {
     Box(Modifier.fillMaxSize().background(Color(0xFF193034)), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             CircularProgressIndicator(color = Color.White)
-            Text("LOADING FIRST GAME", color = Color.White.copy(.76f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text("RESTORING ACCOUNT", color = Color.White.copy(.76f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
         }
     }
 }

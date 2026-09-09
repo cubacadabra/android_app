@@ -1,12 +1,12 @@
 package dev.andrewarrow.cubacadabra.game
 
-import android.app.Activity
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.andrewarrow.cubacadabra.app.AccountGameSession
 import dev.andrewarrow.cubacadabra.nativebridge.NativeEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,7 +17,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
-import java.lang.ref.WeakReference
 import kotlin.math.min
 
 private data class EngineUiEvent(
@@ -50,14 +49,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "GameViewModel"
     }
 
-    private val appRuntime = AppRuntime()
-    private var appSnapshot = appRuntime.snapshot()
-    private val appRequests = mutableMapOf<Long, kotlinx.coroutines.Job>()
-    private var appClosed = false
+    private var accountSession = AccountGameSession()
+    private var serverAppearance: JSONObject? = null
+    var onAccountRequested: (() -> Unit)? = null
+    var onSignOutRequested: (() -> Unit)? = null
+    var onSessionRejected: ((Long) -> Unit)? = null
     private val preferences = application.getSharedPreferences("cubacadabra", 0)
     private val _state = MutableStateFlow(
         GameUiState(
-            profileUsername = appSnapshot.profile,
             blockedPlayerIDs = preferences.getStringSet("blocked-player-ids", emptySet()).orEmpty(),
         ),
     )
@@ -66,12 +65,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val loader = GamePackageLoader(application)
     private val gameAudio = GameAudio(application)
     private val socket = WorldSocketClient(application, viewModelScope)
-    private val authentication = AppAuthenticationService(application)
-    private val googleSignIn = NativeGoogleSignInService(application)
-    private var accessToken: String? = null
-    private var activityReference: WeakReference<Activity>? = null
-    private var isSigningIn = false
     private var engine: Long = 0
+    private var gameLoadGeneration = 0L
     private var renderer: Long = 0
     private var packageImageAtlas: GameImageAtlas? = null
     private var lobbyEnabled = true
@@ -112,14 +107,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 event.appearance?.let(::applyServerAppearance)
-                update {
-                    copy(
-                        isAuthenticated = event.loggedIn,
-                        authUser = if (event.loggedIn) authUser else null,
-                    )
+                if (!event.loggedIn && accountSession.accountID != null) {
+                    onSessionRejected?.invoke(accountSession.sessionID)
                 }
-                if (!event.loggedIn) replaceAppSession()
-                if (!event.loggedIn && engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
             }
         }
         socket.onMovement = { event -> viewModelScope.launch(Dispatchers.Main.immediate) {
@@ -141,15 +131,52 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.onRawMessage = { data ->
             if (engine != 0L) NativeEngine.nativeReceiveTransportMessage(engine, data)
         }
-        load()
+    }
+
+    fun applyAccountSession(session: AccountGameSession) {
+        val previous = accountSession
+        if (previous == session) return
+        accountSession = session
+        if (previous.accountID != session.accountID) {
+            gameLoadGeneration += 1
+            update { copy(isLoading = false, isSelectingGame = false, selectingGameID = null) }
+            exitToMainMenu()
+            socket.disconnect()
+            socket.resetForGuest()
+            serverAppearance = null
+            update { copy(username = socket.username) }
+        }
+        socket.setAccessToken(session.accessToken)
+        session.username?.takeIf { it.isNotEmpty() }?.let {
+            socket.adoptUsername(it)
+            update { copy(username = it) }
+        }
+        if (engine != 0L) {
+            NativeEngine.nativeSetUsername(engine, _state.value.username.toByteArray(Charsets.UTF_8))
+            NativeEngine.nativeSetAuthenticated(engine, session.accountID != null)
+            if (previous.bodyID != session.bodyID) applyAccountAppearance(engine)
+        }
+        if (previous.accountID != session.accountID && session.accountID != null) {
+            refreshBlockedPlayers()
+        }
+    }
+
+    private fun applyAccountAppearance(targetEngine: Long) {
+        val body = accountSession.bodyID ?: return
+        val appearance = serverAppearance?.let { JSONObject(it.toString()) } ?: JSONObject().put("version", 1)
+        appearance.put("body", body)
+        appearance.put("revision", NativeEngine.nativeAppearanceRevision(targetEngine).toLong() + 1L)
+        NativeEngine.nativeSetLocalAppearance(targetEngine, appearance.toString().toByteArray(Charsets.UTF_8))
     }
 
     fun load() {
         if (engine != 0L) return
+        val generation = ++gameLoadGeneration
         update { copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
             runCatching {
                 val loaded = withContext(Dispatchers.IO) { loader.load("first-game") }
+                if (generation != gameLoadGeneration) return@launch
                 val created = createEngine(loaded)
                 gameAudio.configure(loaded.audioAssets)
                 engine = created
@@ -177,11 +204,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         username = socket.username,
                         frame = initialFrame)
                 }
-                authentication.restore()?.let(::applyAuthentication)
-                connectWorld(worldId)
+                if (!_state.value.isMainMenu) connectWorld(worldId)
                 viewModelScope.launch { loader.refreshPackage("first-game") }
             }.onFailure { error ->
-                if (engine == 0L) update { copy(isLoading = false, errorMessage = error.message ?: "Unknown error") }
+                if (generation == gameLoadGeneration && engine == 0L) update { copy(isLoading = false, errorMessage = error.message ?: "Unknown error") }
             }
         }
     }
@@ -207,7 +233,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             NativeEngine.nativeSetUsername(created, socket.username.toByteArray())
-            if (_state.value.isAuthenticated) NativeEngine.nativeSetAuthenticated(created, true)
+            NativeEngine.nativeSetAuthenticated(created, accountSession.accountID != null)
+            applyAccountAppearance(created)
             return created
         } catch (error: Throwable) {
             NativeEngine.nativeDestroy(created)
@@ -229,22 +256,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(activePlayers = emptyList()) }
         lastFrameNanos = null
         load()
-    }
-
-    fun attachActivity(activity: Activity) {
-        activityReference = WeakReference(activity)
-    }
-
-    fun detachActivity(activity: Activity) {
-        if (activityReference?.get() === activity) activityReference = null
-    }
-
-    fun refreshAuthentication() {
-        if (engine == 0L) return
-        viewModelScope.launch {
-            authentication.restore()?.let(::applyAuthentication)
-                ?: clearAuthentication(resetGuestIdentity = _state.value.isAuthenticated)
-        }
     }
 
     fun tick(frameTimeNanos: Long) {
@@ -412,9 +423,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         Log.e(TAG, "could not open the cubacadabra About page", error)
                     }
                 }
-                "shared.sign_in" -> if (uiEvent.phase == "activate") beginSignIn()
+                "shared.sign_in" -> if (uiEvent.phase == "activate") onAccountRequested?.invoke()
                 "shared.leave_game" -> if (uiEvent.phase == "activate") exitToMainMenu()
-                "shared.sign_out" -> if (uiEvent.phase == "activate") signOut()
+                "shared.sign_out" -> if (uiEvent.phase == "activate") onSignOutRequested?.invoke()
                 "build.tool" -> if (uiEvent.phase == "activate") {
                     val tools = listOf("place", "rotate", "remove", "recolor")
                     val nextTool = tools[(tools.indexOf(_state.value.buildTool).coerceAtLeast(0) + 1) % tools.size]
@@ -464,103 +475,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         update { copy(usernameStatus = "Checking that name…") }
         socket.setUsername(normalized)
-    }
-
-    fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
-    fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
-    fun saveProfileUsername() = dispatchApp(JSONObject().put("type", "save_username"))
-
-    private fun replaceAppSession() {
-        appRequests.values.toList().forEach { it.cancel() }
-        appRequests.clear()
-        val user = _state.value.authUser
-        dispatchApp(JSONObject().put("type", "replace_session")
-            .put("account_id", user?.id ?: JSONObject.NULL)
-            .put("username", user?.username ?: JSONObject.NULL))
-        update { copy(morphSaving = false, morphMessage = null, morphMessageIsError = false) }
-    }
-
-    private fun dispatchApp(action: JSONObject) {
-        if (appClosed) return
-        appRuntime.dispatch(action)
-        appSnapshot = appRuntime.snapshot()
-        update { copy(profileUsername = appSnapshot.profile) }
-        val user = _state.value.authUser
-        if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
-            val name = appSnapshot.profile.username
-            update { copy(authUser = user.copy(username = name)) }
-            if (name != null) {
-                socket.adoptUsername(name)
-                if (engine != 0L) NativeEngine.nativeSetUsername(engine, name.toByteArray(Charsets.UTF_8))
-                update { copy(username = name) }
-            }
-        }
-        while (true) {
-            val effect = appRuntime.pollEffect() ?: break
-            val token = authentication.appAccessToken()
-            if (effect.accountId != _state.value.authUser?.id || token == null) {
-                dispatchApp(JSONObject().put("type", "http_completed").put("effect_id", effect.effectId)
-                    .put("status", 401).put("body", ""))
-                continue
-            }
-            appRequests[effect.effectId] = viewModelScope.launch {
-                try {
-                    val response = authentication.performAppRequest(effect, token)
-                    dispatchApp(JSONObject().put("type", "http_completed").put("effect_id", effect.effectId)
-                        .put("status", response.statusCode).put("body", response.body))
-                } catch (error: kotlinx.coroutines.CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    dispatchApp(JSONObject().put("type", "http_failed").put("effect_id", effect.effectId))
-                } finally {
-                    appRequests.remove(effect.effectId)
-                }
-            }
-        }
-    }
-
-    fun saveMorph(bodyID: String) {
-        val sessionID = appSnapshot.sessionId
-        update { copy(morphSaving = true, morphMessage = null, morphMessageIsError = false) }
-        viewModelScope.launch {
-            if (appSnapshot.sessionId != sessionID) return@launch
-            runCatching { authentication.saveAvatar(bodyID) }
-                .onSuccess { result ->
-                    if (appSnapshot.sessionId != sessionID || result.user.id != _state.value.authUser?.id) return@onSuccess
-                    update { copy(authUser = authUser?.copy(bodyID = result.user.bodyID)) }
-                    update {
-                        copy(
-                            morphSaving = false,
-                            morphMessage = "Morph saved.",
-                            morphMessageIsError = false,
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (appSnapshot.sessionId != sessionID) return@onFailure
-                    val message = when (error) {
-                        is AppProfileException.Server -> when (error.code) {
-                            "invalid_body_id" -> "Choose one of the available morphs."
-                            "age_required" -> "Complete your birthday before choosing a morph."
-                            "not_authenticated" -> "Your sign-in has expired. Please sign in again."
-                            else -> "We couldn’t save your morph. Please try again."
-                        }
-                        is AppProfileException.Unauthorized -> "Your sign-in has expired. Please sign in again."
-                        else -> "We couldn’t save your morph. Please try again."
-                    }
-                    update {
-                        copy(
-                            morphSaving = false,
-                            morphMessage = message,
-                            morphMessageIsError = true,
-                        )
-                    }
-                }
-        }
-    }
-
-    fun clearMorphMessage() {
-        update { copy(morphMessage = null, morphMessageIsError = false) }
     }
 
     fun createRenderer(surface: android.view.Surface, width: Float, height: Float) {
@@ -696,98 +610,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun beginSignIn() {
-        if (isSigningIn) {
-            Log.d(TAG, "ignoring sign-in request because sign-in is already running")
-            return
-        }
-        if (activityReference?.get() == null) {
-            Log.w(TAG, "sign-in requested without an active Activity")
-            return
-        }
-        Log.d(TAG, "opening sign-in choices")
-        update { copy(loginDialogOpen = true, loginErrorMessage = null) }
-    }
-
-    fun dismissLoginDialog() {
-        if (!isSigningIn) update { copy(loginDialogOpen = false, loginErrorMessage = null) }
-    }
-
-    fun startGoogleSignIn() {
-        if (isSigningIn) return
-        val activity = activityReference?.get() ?: run {
-            Log.w(TAG, "Google sign-in requested without an active Activity")
-            return
-        }
-        Log.d(TAG, "starting Google sign-in")
-        isSigningIn = true
-        update { copy(loginDialogOpen = false, loginInProgress = true, loginErrorMessage = null) }
-        viewModelScope.launch {
-            try {
-                val credential = googleSignIn.signIn(activity)
-                Log.d(TAG, "Google credential returned; exchanging credential with backend")
-                val result = authentication.authenticateGoogle(credential)
-                Log.d(TAG, "backend sign-in succeeded user=${result.user.id} username=${result.user.username}")
-                applyAuthentication(result)
-                Log.d(TAG, "authentication applied; requesting main-menu transition")
-                exitToMainMenu()
-            } catch (_: AppAuthException.Cancelled) {
-                // The user dismissed the Google sign-in flow.
-                Log.d(TAG, "Google sign-in was cancelled")
-            } catch (error: Throwable) {
-                Log.w(TAG, "native Google sign-in failed", error)
-            } finally {
-                isSigningIn = false
-                update { copy(loginInProgress = false) }
-                Log.d(TAG, "Rust-triggered Google sign-in finished")
-            }
-        }
-    }
-
-    fun signInWithEmail(email: String, password: String) {
-        if (isSigningIn) return
-        val normalizedEmail = email.trim()
-        if (normalizedEmail.isEmpty() || password.isEmpty()) {
-            update { copy(loginErrorMessage = "Enter your email and password.") }
-            return
-        }
-        Log.d(TAG, "starting email sign-in")
-        isSigningIn = true
-        update { copy(loginInProgress = true, loginErrorMessage = null) }
-        viewModelScope.launch {
-            try {
-                val result = authentication.authenticateEmail(normalizedEmail, password)
-                Log.d(TAG, "email sign-in succeeded")
-                applyAuthentication(result)
-                update { copy(loginDialogOpen = false) }
-                exitToMainMenu()
-            } catch (error: AppAuthException.Server) {
-                update {
-                    copy(
-                        loginDialogOpen = true,
-                        loginErrorMessage = if (error.statusCode == 401) {
-                            "That email or password is not correct."
-                        } else {
-                            "We could not finish signing you in. Please try again."
-                        },
-                    )
-                }
-            } catch (error: Throwable) {
-                Log.w(TAG, "email sign-in failed", error)
-                update {
-                    copy(
-                        loginDialogOpen = true,
-                        loginErrorMessage = "We could not finish signing you in. Please try again.",
-                    )
-                }
-            } finally {
-                isSigningIn = false
-                update { copy(loginInProgress = false) }
-            }
-        }
-    }
-
     fun enterGame() {
+        if (engine == 0L) return
         if (!_state.value.isMainMenu) {
             Log.d(TAG, "ignoring enter-game request because main menu is not visible")
             return
@@ -818,12 +642,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        update { copy(isSelectingGame = true, selectingGameID = game.catalogID, gameSelectionError = null) }
+        val generation = ++gameLoadGeneration
+        update { copy(isMainMenu = true, isLoading = false, isSelectingGame = true, selectingGameID = game.catalogID, gameSelectionError = null) }
         viewModelScope.launch {
             runCatching {
                 val loaded = withContext(Dispatchers.IO) {
                     loader.load(game.id, packageBaseUrl = game.packageBaseUrl)
                 }
+                if (generation != gameLoadGeneration) return@launch
                 val nextEngine = createEngine(loaded)
                 gameAudio.configure(loaded.audioAssets)
                 if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
@@ -845,6 +671,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 update {
                     copy(
                         isMainMenu = true,
+                        isLoading = false,
+                        errorMessage = null,
                         isSelectingGame = false,
                         selectingGameID = null,
                         selectedGameID = game.id,
@@ -865,6 +693,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 enterGame()
             }.onFailure { error ->
+                if (generation != gameLoadGeneration) return@launch
                 update {
                     copy(
                         isSelectingGame = false,
@@ -880,7 +709,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(gameSelectionError = null) }
     }
 
-    private fun exitToMainMenu() {
+    fun exitToMainMenu() {
         val previousWorldId = _state.value.worldId
         forward = 0f
         strafe = 0f
@@ -890,7 +719,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val packageData = _state.value.packageData
         val returnWorld = if (lobbyEnabled) "lobby" else packageData?.initialWorld
         val returnIndex = returnWorld?.let { packageData?.runtimeWorldIds()?.indexOf(it) } ?: -1
-        val movedToReturnWorld = returnIndex >= 0 && NativeEngine.nativeStartWorld(engine, returnIndex)
+        val movedToReturnWorld = engine != 0L && returnIndex >= 0 && NativeEngine.nativeStartWorld(engine, returnIndex)
         setNativeBuildBlocks(emptyList())
         socket.disconnect()
         update {
@@ -905,41 +734,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         Log.d(TAG, "main-menu transition complete previousWorld=$previousWorldId movedToWorld=$movedToReturnWorld isMainMenu=${_state.value.isMainMenu}")
-    }
-
-    fun signOut() {
-        if (isSigningIn) return
-        authentication.clearTokens()
-        clearAuthentication(resetGuestIdentity = true)
-        activityReference?.get()?.let { activity ->
-            viewModelScope.launch { googleSignIn.signOut(activity) }
-        }
-    }
-
-    private fun applyAuthentication(result: AppAuthResult) {
-        Log.d(TAG, "applying authentication user=${result.user.id} engineReady=${engine != 0L}")
-        accessToken = result.accessToken
-        update { copy(isAuthenticated = true, authUser = result.user) }
-        replaceAppSession()
-        if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, true)
-        result.user.username?.takeIf { it.isNotEmpty() }?.let { username ->
-            socket.adoptUsername(username)
-            if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
-            update { copy(username = username) }
-        }
-        socket.setAccessToken(result.accessToken)
-        viewModelScope.launch { refreshBlockedPlayers() }
-    }
-
-    private fun clearAuthentication(resetGuestIdentity: Boolean = false) {
-        accessToken = null
-        if (resetGuestIdentity) socket.resetForGuest()
-        socket.clearPendingUsername()
-        update { copy(isAuthenticated = false, authUser = null, username = socket.username) }
-        replaceAppSession()
-        if (engine != 0L) NativeEngine.nativeSetUsername(engine, socket.username.toByteArray())
-        if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
-        socket.setAccessToken(null)
     }
 
     fun lobbyLaunchStatus(pad: LaunchPadDefinition, live: EnginePad?): String {
@@ -1016,7 +810,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun blockPlayer(player: RemotePlayerSummary) {
         val targetID = player.id
         val current = _state.value.blockedPlayerIDs
-        if (targetID in current || !_state.value.isAuthenticated) return
+        if (targetID in current || accountSession.accountID == null) return
         update { copy(blockedPlayerIDs = current + targetID) }
         update { copy(activePlayers = activeRemotePlayers()) }
         persistBlockedIDs()
@@ -1035,7 +829,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun unblockPlayer(playerID: String) {
-        if (playerID !in _state.value.blockedPlayerIDs || !_state.value.isAuthenticated) return
+        if (playerID !in _state.value.blockedPlayerIDs || accountSession.accountID == null) return
         update { copy(blockedPlayerIDs = blockedPlayerIDs - playerID) }
         update { copy(activePlayers = activeRemotePlayers()) }
         persistBlockedIDs()
@@ -1054,7 +848,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshBlockedPlayers() {
-        if (!_state.value.isAuthenticated) return
+        if (accountSession.accountID == null) return
         viewModelScope.launch {
             runCatching { moderationService().fetchBlockedPlayerIds() }
                 .onSuccess { ids ->
@@ -1064,7 +858,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun moderationService() = ModerationService(socket.playerId, accessToken)
+    private fun moderationService() = ModerationService(socket.playerId, accountSession.accessToken)
 
     private fun blockedIDs() = _state.value.blockedPlayerIDs
 
@@ -1092,6 +886,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyServerAppearance(serverAppearance: JSONObject) {
+        this.serverAppearance = JSONObject(serverAppearance.toString())
         val currentEngine = engine
         if (currentEngine == 0L) return
         val appearance = JSONObject(serverAppearance.toString())
@@ -1117,10 +912,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun update(transform: GameUiState.() -> GameUiState) { _state.value = transform(_state.value) }
 
     override fun onCleared() {
-        appClosed = true
-        appRequests.values.toList().forEach { it.cancel() }
-        appRequests.clear()
-        appRuntime.close()
         socket.disconnect()
         gameAudio.stopAll()
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
