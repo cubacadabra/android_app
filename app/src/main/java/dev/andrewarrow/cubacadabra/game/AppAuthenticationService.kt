@@ -50,27 +50,11 @@ class AppAuthenticationService(context: Context) {
             ?: throw AppAuthException.InvalidResponse()
     }
 
-    suspend fun saveUsername(username: String): AppProfileUpdateResult {
-        val accessToken = tokenStore.load()?.first ?: throw AppProfileException.Unauthorized
-        val response = request(
-            "auth/username",
-            "POST",
-            org.json.JSONObject().put("username", username),
-            accessToken,
-        )
-        if (response.statusCode !in 200..299) {
-            val code = runCatching { org.json.JSONObject(response.body).optString("error").takeIf { it.isNotEmpty() } }
-                .getOrNull()
-            throw AppProfileException.Server(response.statusCode, code)
-        }
-        return runCatching {
-            val json = org.json.JSONObject(response.body)
-            AppProfileUpdateResult(
-                user = parseUser(json.getJSONObject("user")),
-                age = if (json.has("age") && !json.isNull("age")) json.getInt("age") else null,
-            )
-        }.getOrElse { throw AppAuthException.InvalidResponse(it) }
-    }
+    // Called while draining effects on the main thread, before launching IO.
+    fun appAccessToken(): String? = tokenStore.load()?.first
+
+    suspend fun performAppRequest(effect: AppHttpEffect, accessToken: String): HttpResponse =
+        requestRaw(effect.path, effect.method, effect.body, accessToken)
 
     suspend fun saveAvatar(bodyID: String): AppProfileUpdateResult {
         val accessToken = tokenStore.load()?.first ?: throw AppProfileException.Unauthorized
@@ -155,7 +139,9 @@ class AppAuthenticationService(context: Context) {
         method: String,
         body: org.json.JSONObject?,
         accessToken: String?,
-    ): HttpResponse = withContext(Dispatchers.IO) {
+    ): HttpResponse = requestRaw(path, method, body?.toString(), accessToken)
+
+    private suspend fun requestRaw(path: String, method: String, body: String?, accessToken: String?): HttpResponse = withContext(Dispatchers.IO) {
         val connection = (java.net.URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/" + path)
             .openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 10_000
@@ -169,7 +155,7 @@ class AppAuthenticationService(context: Context) {
                 }
             }
         try {
-            body?.let { connection.outputStream.use { stream -> stream.write(it.toString().toByteArray(Charsets.UTF_8)) } }
+            body?.let { connection.outputStream.use { stream -> stream.write(it.toByteArray(Charsets.UTF_8)) } }
             val statusCode = connection.responseCode
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
@@ -184,5 +170,5 @@ class AppAuthenticationService(context: Context) {
         }
     }
 
-    private data class HttpResponse(val statusCode: Int, val body: String)
+    data class HttpResponse(val statusCode: Int, val body: String)
 }

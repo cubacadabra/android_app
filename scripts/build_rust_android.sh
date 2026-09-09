@@ -72,7 +72,7 @@ build_one() {
             "$cc_env=$linker" \
             "$cxx_env=$cxx" \
             "$ar_env=$clang_root/llvm-ar" \
-            rustup run "$rust_toolchain" cargo build --manifest-path "$rust_root/crates/client/Cargo.toml" --target "$target" --release --features android-backends
+            rustup run "$rust_toolchain" cargo build --manifest-path "$rust_root/Cargo.toml" -p cubacadabra-client -p cubacadabra-app --target "$target" --release --features cubacadabra-client/android-backends
     else
         env \
             "CARGO_TARGET_DIR=$rust_root/target" \
@@ -80,10 +80,12 @@ build_one() {
             "$cc_env=$linker" \
             "$cxx_env=$cxx" \
             "$ar_env=$clang_root/llvm-ar" \
-            cargo build --manifest-path "$rust_root/crates/client/Cargo.toml" --target "$target" --release --features android-backends
+            cargo build --manifest-path "$rust_root/Cargo.toml" -p cubacadabra-client -p cubacadabra-app --target "$target" --release --features cubacadabra-client/android-backends
     fi
     cp "$rust_root/target/$target/release/libcubacadabra_client.so" \
         "$output_root/$abi/libcubacadabra_client.so"
+    cp "$rust_root/target/$target/release/libcubacadabra_app.so" \
+        "$output_root/$abi/libcubacadabra_app.so"
     cp "$ndk_root/toolchains/llvm/prebuilt/$toolchain_host/sysroot/usr/lib/$target/libc++_shared.so" \
         "$output_root/$abi/libc++_shared.so"
 }

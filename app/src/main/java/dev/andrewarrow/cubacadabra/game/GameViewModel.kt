@@ -50,9 +50,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "GameViewModel"
     }
 
+    private val appRuntime = AppRuntime()
+    private var appSnapshot = appRuntime.snapshot()
+    private val appRequests = mutableMapOf<Long, kotlinx.coroutines.Job>()
+    private var appClosed = false
     private val preferences = application.getSharedPreferences("cubacadabra", 0)
     private val _state = MutableStateFlow(
         GameUiState(
+            profileUsername = appSnapshot.profile,
             blockedPlayerIDs = preferences.getStringSet("blocked-player-ids", emptySet()).orEmpty(),
         ),
     )
@@ -113,6 +118,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         authUser = if (event.loggedIn) authUser else null,
                     )
                 }
+                if (!event.loggedIn) replaceAppSession()
                 if (!event.loggedIn && engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
             }
         }
@@ -460,62 +466,68 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.setUsername(normalized)
     }
 
-    fun saveProfileUsername(value: String) {
-        val normalized = value.trim()
-        if (normalized.length !in 2..24 || !normalized.matches(Regex("[A-Za-z0-9_-]+"))) {
-            update {
-                copy(
-                    profileUsernameSaving = false,
-                    profileUsernameMessage = "Use 2–24 letters, numbers, _ or -.",
-                    profileUsernameMessageIsError = true,
-                )
-            }
-            return
-        }
-        update { copy(profileUsernameSaving = true, profileUsernameMessage = null, profileUsernameMessageIsError = false) }
-        viewModelScope.launch {
-            runCatching { authentication.saveUsername(normalized) }
-                .onSuccess { result ->
-                    applyProfileUpdate(result)
-                    update {
-                        copy(
-                            profileUsernameSaving = false,
-                            profileUsernameMessage = "Username saved.",
-                            profileUsernameMessageIsError = false,
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    val message = when (error) {
-                        is AppProfileException.Server -> when (error.code) {
-                            "username_taken" -> "That username is already in use. Try another."
-                            "username_not_allowed" -> "That username isn’t available. Try another."
-                            else -> "We couldn’t save your username. Please try again."
-                        }
-                        is AppProfileException.Unauthorized -> "Your sign-in has expired. Please sign in again."
-                        else -> "We couldn’t save your username. Please try again."
-                    }
-                    update {
-                        copy(
-                            profileUsernameSaving = false,
-                            profileUsernameMessage = message,
-                            profileUsernameMessageIsError = true,
-                        )
-                    }
-                }
-        }
+    fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
+    fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
+    fun saveProfileUsername() = dispatchApp(JSONObject().put("type", "save_username"))
+
+    private fun replaceAppSession() {
+        appRequests.values.toList().forEach { it.cancel() }
+        appRequests.clear()
+        val user = _state.value.authUser
+        dispatchApp(JSONObject().put("type", "replace_session")
+            .put("account_id", user?.id ?: JSONObject.NULL)
+            .put("username", user?.username ?: JSONObject.NULL))
+        update { copy(morphSaving = false, morphMessage = null, morphMessageIsError = false) }
     }
 
-    fun clearProfileUsernameMessage() {
-        update { copy(profileUsernameMessage = null, profileUsernameMessageIsError = false) }
+    private fun dispatchApp(action: JSONObject) {
+        if (appClosed) return
+        appRuntime.dispatch(action)
+        appSnapshot = appRuntime.snapshot()
+        update { copy(profileUsername = appSnapshot.profile) }
+        val user = _state.value.authUser
+        if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
+            val name = appSnapshot.profile.username
+            update { copy(authUser = user.copy(username = name)) }
+            if (name != null) {
+                socket.adoptUsername(name)
+                if (engine != 0L) NativeEngine.nativeSetUsername(engine, name.toByteArray(Charsets.UTF_8))
+                update { copy(username = name) }
+            }
+        }
+        while (true) {
+            val effect = appRuntime.pollEffect() ?: break
+            val token = authentication.appAccessToken()
+            if (effect.accountId != _state.value.authUser?.id || token == null) {
+                dispatchApp(JSONObject().put("type", "http_completed").put("effect_id", effect.effectId)
+                    .put("status", 401).put("body", ""))
+                continue
+            }
+            appRequests[effect.effectId] = viewModelScope.launch {
+                try {
+                    val response = authentication.performAppRequest(effect, token)
+                    dispatchApp(JSONObject().put("type", "http_completed").put("effect_id", effect.effectId)
+                        .put("status", response.statusCode).put("body", response.body))
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    dispatchApp(JSONObject().put("type", "http_failed").put("effect_id", effect.effectId))
+                } finally {
+                    appRequests.remove(effect.effectId)
+                }
+            }
+        }
     }
 
     fun saveMorph(bodyID: String) {
+        val sessionID = appSnapshot.sessionId
         update { copy(morphSaving = true, morphMessage = null, morphMessageIsError = false) }
         viewModelScope.launch {
+            if (appSnapshot.sessionId != sessionID) return@launch
             runCatching { authentication.saveAvatar(bodyID) }
                 .onSuccess { result ->
-                    applyProfileUpdate(result)
+                    if (appSnapshot.sessionId != sessionID || result.user.id != _state.value.authUser?.id) return@onSuccess
+                    update { copy(authUser = authUser?.copy(bodyID = result.user.bodyID)) }
                     update {
                         copy(
                             morphSaving = false,
@@ -525,6 +537,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure { error ->
+                    if (appSnapshot.sessionId != sessionID) return@onFailure
                     val message = when (error) {
                         is AppProfileException.Server -> when (error.code) {
                             "invalid_body_id" -> "Choose one of the available morphs."
@@ -907,6 +920,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(TAG, "applying authentication user=${result.user.id} engineReady=${engine != 0L}")
         accessToken = result.accessToken
         update { copy(isAuthenticated = true, authUser = result.user) }
+        replaceAppSession()
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, true)
         result.user.username?.takeIf { it.isNotEmpty() }?.let { username ->
             socket.adoptUsername(username)
@@ -917,20 +931,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { refreshBlockedPlayers() }
     }
 
-    private fun applyProfileUpdate(result: AppProfileUpdateResult) {
-        update { copy(authUser = result.user) }
-        result.user.username?.takeIf { it.isNotEmpty() }?.let { username ->
-            socket.adoptUsername(username)
-            if (engine != 0L) NativeEngine.nativeSetUsername(engine, username.toByteArray())
-            update { copy(username = username) }
-        }
-    }
-
     private fun clearAuthentication(resetGuestIdentity: Boolean = false) {
         accessToken = null
         if (resetGuestIdentity) socket.resetForGuest()
         socket.clearPendingUsername()
         update { copy(isAuthenticated = false, authUser = null, username = socket.username) }
+        replaceAppSession()
         if (engine != 0L) NativeEngine.nativeSetUsername(engine, socket.username.toByteArray())
         if (engine != 0L) NativeEngine.nativeSetAuthenticated(engine, false)
         socket.setAccessToken(null)
@@ -1111,6 +1117,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun update(transform: GameUiState.() -> GameUiState) { _state.value = transform(_state.value) }
 
     override fun onCleared() {
+        appClosed = true
+        appRequests.values.toList().forEach { it.cancel() }
+        appRequests.clear()
+        appRuntime.close()
         socket.disconnect()
         gameAudio.stopAll()
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)

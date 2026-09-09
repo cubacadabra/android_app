@@ -370,9 +370,7 @@ private fun MenuDivider() {
 
 @Composable
 private fun ProfileUsernameScreen(state: GameUiState, model: GameViewModel) {
-    var draft by remember(state.username, state.authUser?.username) {
-        mutableStateOf(state.authUser?.username ?: state.username)
-    }
+    val profile = state.profileUsername
     val focusRequester = remember { FocusRequester() }
     Column(
         Modifier
@@ -386,26 +384,26 @@ private fun ProfileUsernameScreen(state: GameUiState, model: GameViewModel) {
         Text("USERNAME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
         Text("Choose a name other players can find you by.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
         OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it; model.clearProfileUsernameMessage() },
+            value = profile.usernameDraft,
+            onValueChange = model::changeProfileUsername,
             modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             label = { Text("Your username") },
             singleLine = true,
         )
         Text("Use 2–24 letters, numbers, _ or -.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(.68f))
-        state.profileUsernameMessage?.let { message ->
-            Text(message, color = if (state.profileUsernameMessageIsError) MaterialTheme.colorScheme.error else Color(0xFF3E8B63), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        profile.usernameFeedback?.let { feedback ->
+            Text(feedback.message, color = if (feedback.kind == "error") MaterialTheme.colorScheme.error else Color(0xFF3E8B63), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         Button(
-            onClick = { model.saveProfileUsername(draft) },
-            enabled = !state.profileUsernameSaving,
+            onClick = { model.saveProfileUsername() },
+            enabled = profile.usernameCanSave,
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
         ) {
-            if (state.profileUsernameSaving) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
+            if (profile.usernameIsSaving) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
             else Text("SAVE USERNAME", fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
         }
     }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { model.beginProfileUsernameEdit(); focusRequester.requestFocus() }
 }
 
 @Composable

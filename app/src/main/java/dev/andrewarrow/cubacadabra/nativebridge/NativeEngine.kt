@@ -5,10 +5,16 @@ import android.view.Surface
 internal object NativeEngine {
     init {
         System.loadLibrary("cubacadabra_client")
+        System.loadLibrary("cubacadabra_app")
         System.loadLibrary("cubacadabra_jni")
     }
 
     external fun nativeCreate(manifest: ByteArray, script: ByteArray): Long
+    external fun nativeAppCreate(): Long
+    external fun nativeAppDestroy(app: Long)
+    external fun nativeAppDispatch(app: Long, action: ByteArray): Boolean
+    external fun nativeAppSnapshot(app: Long): ByteArray
+    external fun nativeAppPollEffect(app: Long): ByteArray?
     external fun nativeDestroy(engine: Long)
     external fun nativeTransportConnected(engine: Long)
     external fun nativeTransportDisconnected(engine: Long)
