@@ -17,12 +17,6 @@ data class AppAuthResult(
     val browserHandoffCode: String?,
 )
 
-data class AppProfileUpdateResult(val user: AppAuthUser, val age: Int?)
-
-sealed class AppProfileException : Exception() {
-    data object Unauthorized : AppProfileException()
-    data class Server(val statusCode: Int, val code: String?) : AppProfileException()
-}
 
 sealed class AppAuthException : Exception() {
     data object Cancelled : AppAuthException()

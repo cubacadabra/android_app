@@ -75,10 +75,9 @@ internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
                 },
                 onSignOut = appModel::signOut,
                 onUsername = { destination = HomeDestination.Username },
-                onMorph = {
-                    appModel.clearMorphMessage()
-                    destination = HomeDestination.Morph
-                },
+            onMorph = {
+                destination = HomeDestination.Morph
+            },
                 onSafety = { destination = HomeDestination.Safety },
                 onMore = {
                     model.exitToMainMenu()

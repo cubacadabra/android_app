@@ -67,11 +67,12 @@ internal data class MorphOption(
 
 @Composable
 internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
-    var selectedBodyID by remember { mutableStateOf(MorphOption.fromBodyID(state.authUser?.bodyID).bodyID) }
+    var selectedBodyID by remember { mutableStateOf(MorphOption.fromBodyID(state.profileUsername.bodyID).bodyID) }
 
-    LaunchedEffect(state.authUser?.bodyID) {
-        selectedBodyID = MorphOption.fromBodyID(state.authUser?.bodyID).bodyID
+    LaunchedEffect(state.profileUsername.bodyID) {
+        selectedBodyID = MorphOption.fromBodyID(state.profileUsername.bodyID).bodyID
     }
+    LaunchedEffect(Unit) { model.beginMorphEdit() }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -102,17 +103,17 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
 
             MorphGrid(
                 selectedBodyID = selectedBodyID,
-                enabled = !state.morphSaving,
+                enabled = !state.profileUsername.bodyIsSaving,
                 onSelect = {
                     selectedBodyID = it
-                    model.clearMorphMessage()
+                    model.changeMorph(it)
                 },
             )
 
-            state.morphMessage?.let { message ->
+            state.profileUsername.bodyFeedback?.let { feedback ->
                 Text(
-                    message,
-                    color = if (state.morphMessageIsError) {
+                    feedback.message,
+                    color = if (feedback.kind == "error") {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.primary
@@ -123,11 +124,11 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
             }
 
             Button(
-                onClick = { model.saveMorph(selectedBodyID) },
-                enabled = !state.morphSaving,
+                onClick = { model.saveMorph() },
+                enabled = !state.profileUsername.bodyIsSaving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             ) {
-                if (state.morphSaving) {
+                if (state.profileUsername.bodyIsSaving) {
                     CircularProgressIndicator(
                         modifier = Modifier.width(18.dp).height(18.dp),
                         strokeWidth = 2.dp,

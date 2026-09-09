@@ -10,9 +10,6 @@ data class AppUiState(
     val loginInProgress: Boolean = false,
     val loginErrorMessage: String? = null,
     val profileUsername: AppProfileSnapshot = AppProfileSnapshot(),
-    val morphSaving: Boolean = false,
-    val morphMessage: String? = null,
-    val morphMessageIsError: Boolean = false,
 ) {
     val isAuthenticated: Boolean get() = authUser != null
 }

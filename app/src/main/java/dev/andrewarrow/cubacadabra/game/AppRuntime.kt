@@ -11,6 +11,11 @@ data class AppProfileSnapshot(
     val usernameCanSave: Boolean = false,
     val usernameIsSaving: Boolean = false,
     val usernameFeedback: AppUsernameFeedback? = null,
+    val bodyID: String? = null,
+    val bodyDraft: String = "",
+    val bodyCanSave: Boolean = false,
+    val bodyIsSaving: Boolean = false,
+    val bodyFeedback: AppUsernameFeedback? = null,
 )
 
 data class AppSnapshot(val sessionId: Long, val accountId: String?, val profile: AppProfileSnapshot)
@@ -35,11 +40,16 @@ class AppRuntime : AutoCloseable {
             check(kind == "success" || kind == "error")
             AppUsernameFeedback(kind, it.get("message") as String)
         }
+        val bodyFeedback = if (profile.isNull("body_feedback")) null else profile.getJSONObject("body_feedback").let {
+            AppUsernameFeedback(it.get("kind") as String, it.get("message") as String)
+        }
         return AppSnapshot(
             json.getLong("session_id"), json.nullableString("account_id"),
             AppProfileSnapshot(
                 profile.nullableString("username"), profile.get("username_draft") as String,
                 profile.get("username_can_save") as Boolean, profile.get("username_is_saving") as Boolean, feedback,
+                profile.nullableString("body_id"), profile.get("body_draft") as String,
+                profile.get("body_can_save") as Boolean, profile.get("body_is_saving") as Boolean, bodyFeedback,
             ),
         )
     }

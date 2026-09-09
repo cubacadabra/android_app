@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import dev.andrewarrow.cubacadabra.game.AppAuthenticationService
 import dev.andrewarrow.cubacadabra.game.AppAuthException
 import dev.andrewarrow.cubacadabra.game.AppAuthResult
-import dev.andrewarrow.cubacadabra.game.AppProfileException
 import dev.andrewarrow.cubacadabra.game.AppRuntime
 import dev.andrewarrow.cubacadabra.game.NativeGoogleSignInService
 import kotlinx.coroutines.CancellationException
@@ -58,7 +57,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (result != null) {
                 val user = _state.value.authUser
                 val accepted = if (user != null && result.user.id == user.id &&
-                    (revision != profileRevision || appSnapshot.profile.usernameIsSaving)) {
+                    (revision != profileRevision || appSnapshot.profile.usernameIsSaving || appSnapshot.profile.bodyIsSaving)) {
                     result.copy(user = user)
                 } else result
                 applyAuthentication(accepted, replaceSession = false)
@@ -138,7 +137,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyAuthentication(result: AppAuthResult, replaceSession: Boolean = true) {
         val current = _state.value.authUser
-        val needsReplacement = replaceSession || current?.id != result.user.id || current?.username != result.user.username
+        val needsReplacement = replaceSession || current?.id != result.user.id
+            || current?.username != result.user.username || current?.bodyID != result.user.bodyID
         accessToken = result.accessToken
         update { copy(authUser = result.user) }
         if (needsReplacement) replaceAppSession()
@@ -160,6 +160,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
     fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
     fun saveProfileUsername() = dispatchApp(JSONObject().put("type", "save_username"))
+    fun beginMorphEdit() = dispatchApp(JSONObject().put("type", "begin_body_edit"))
+    fun changeMorph(bodyID: String) = dispatchApp(JSONObject().put("type", "body_changed").put("body_id", bodyID))
+    fun saveMorph() = dispatchApp(JSONObject().put("type", "save_body"))
 
     private fun replaceAppSession() {
         appRequests.values.toList().forEach { it.cancel() }
@@ -167,8 +170,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val user = _state.value.authUser
         dispatchApp(JSONObject().put("type", "replace_session")
             .put("account_id", user?.id ?: JSONObject.NULL)
-            .put("username", user?.username ?: JSONObject.NULL))
-        update { copy(morphSaving = false, morphMessage = null, morphMessageIsError = false) }
+            .put("username", user?.username ?: JSONObject.NULL)
+            .put("body_id", user?.bodyID ?: JSONObject.NULL))
     }
 
     private fun dispatchApp(action: JSONObject) {
@@ -181,6 +184,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
             val name = appSnapshot.profile.username
             update { copy(authUser = user.copy(username = name)) }
+            publishGameSession()
+        }
+        if (user != null && user.id == appSnapshot.accountId && user.bodyID != appSnapshot.profile.bodyID) {
+            update { copy(authUser = user.copy(bodyID = appSnapshot.profile.bodyID)) }
             publishGameSession()
         }
         while (true) {
@@ -207,51 +214,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveMorph(bodyID: String) {
-        val sessionID = appSnapshot.sessionId
-        update { copy(morphSaving = true, morphMessage = null, morphMessageIsError = false) }
-        viewModelScope.launch {
-            if (appSnapshot.sessionId != sessionID) return@launch
-            runCatching { authentication.saveAvatar(bodyID) }
-                .onSuccess { result ->
-                    if (appSnapshot.sessionId != sessionID || result.user.id != _state.value.authUser?.id) return@onSuccess
-                    update { copy(authUser = authUser?.copy(bodyID = result.user.bodyID)) }
-                    profileRevision += 1
-                    publishGameSession()
-                    update {
-                        copy(
-                            morphSaving = false,
-                            morphMessage = "Morph saved.",
-                            morphMessageIsError = false,
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (appSnapshot.sessionId != sessionID) return@onFailure
-                    val message = when (error) {
-                        is AppProfileException.Server -> when (error.code) {
-                            "invalid_body_id" -> "Choose one of the available morphs."
-                            "age_required" -> "Complete your birthday before choosing a morph."
-                            "not_authenticated" -> "Your sign-in has expired. Please sign in again."
-                            else -> "We couldn’t save your morph. Please try again."
-                        }
-                        is AppProfileException.Unauthorized -> "Your sign-in has expired. Please sign in again."
-                        else -> "We couldn’t save your morph. Please try again."
-                    }
-                    update {
-                        copy(
-                            morphSaving = false,
-                            morphMessage = message,
-                            morphMessageIsError = true,
-                        )
-                    }
-                }
-        }
-    }
-
-    fun clearMorphMessage() {
-        update { copy(morphMessage = null, morphMessageIsError = false) }
-    }
 
 
     private fun update(transform: AppUiState.() -> AppUiState) { _state.value = transform(_state.value) }
