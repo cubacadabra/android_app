@@ -61,6 +61,9 @@ extern uint8_t engine_renderer_set_package_image_atlas(
     CubacadabraRenderer *, uint32_t, uint32_t, const uint8_t *, uintptr_t,
     const uint8_t *, uintptr_t
 );
+extern uint8_t engine_renderer_register_morph_pack(
+    CubacadabraRenderer *, const uint8_t *, uintptr_t
+);
 extern void engine_renderer_sync(CubacadabraRenderer *, const CubacadabraEngine *);
 extern void engine_renderer_draw(CubacadabraRenderer *);
 extern void engine_renderer_destroy(CubacadabraRenderer *);
