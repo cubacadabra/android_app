@@ -57,7 +57,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (result != null) {
                 val user = _state.value.authUser
                 val accepted = if (user != null && result.user.id == user.id &&
-                    (revision != profileRevision || appSnapshot.profile.usernameIsSaving || appSnapshot.profile.bodyIsSaving)) {
+                    (revision != profileRevision || appSnapshot.profile.usernameIsSaving || appSnapshot.profile.bodyIsSaving
+                        || appSnapshot.profile.birthdayIsSaving)) {
                     result.copy(user = user)
                 } else result
                 applyAuthentication(accepted, replaceSession = false)
@@ -136,9 +137,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyAuthentication(result: AppAuthResult, replaceSession: Boolean = true) {
-        val current = _state.value.authUser
-        val needsReplacement = replaceSession || current?.id != result.user.id
+            val current = _state.value.authUser
+            val needsReplacement = replaceSession || current?.id != result.user.id
             || current?.username != result.user.username || current?.bodyID != result.user.bodyID
+            || current?.dateOfBirth != result.user.dateOfBirth
         accessToken = result.accessToken
         update { copy(authUser = result.user) }
         if (needsReplacement) replaceAppSession()
@@ -163,6 +165,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun beginMorphEdit() = dispatchApp(JSONObject().put("type", "begin_body_edit"))
     fun changeMorph(bodyID: String) = dispatchApp(JSONObject().put("type", "body_changed").put("body_id", bodyID))
     fun saveMorph() = dispatchApp(JSONObject().put("type", "save_body"))
+    fun saveBirthday(dateOfBirth: String) = dispatchApp(JSONObject().put("type", "save_birthday").put("date_of_birth", dateOfBirth))
 
     private fun replaceAppSession() {
         appRequests.values.toList().forEach { it.cancel() }
@@ -171,7 +174,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         dispatchApp(JSONObject().put("type", "replace_session")
             .put("account_id", user?.id ?: JSONObject.NULL)
             .put("username", user?.username ?: JSONObject.NULL)
-            .put("body_id", user?.bodyID ?: JSONObject.NULL))
+            .put("body_id", user?.bodyID ?: JSONObject.NULL)
+            .put("date_of_birth", user?.dateOfBirth ?: JSONObject.NULL))
     }
 
     private fun dispatchApp(action: JSONObject) {
@@ -189,6 +193,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (user != null && user.id == appSnapshot.accountId && user.bodyID != appSnapshot.profile.bodyID) {
             update { copy(authUser = user.copy(bodyID = appSnapshot.profile.bodyID)) }
             publishGameSession()
+        }
+        if (user != null && user.id == appSnapshot.accountId && user.dateOfBirth != appSnapshot.profile.dateOfBirth) {
+            update { copy(authUser = user.copy(dateOfBirth = appSnapshot.profile.dateOfBirth)) }
         }
         while (true) {
             val effect = appRuntime.pollEffect() ?: break

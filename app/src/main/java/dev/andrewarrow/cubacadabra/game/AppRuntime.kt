@@ -4,6 +4,7 @@ import dev.andrewarrow.cubacadabra.nativebridge.NativeEngine
 import org.json.JSONObject
 
 data class AppUsernameFeedback(val kind: String, val message: String)
+data class AppBirthdayFeedback(val kind: String, val code: String, val message: String)
 
 data class AppProfileSnapshot(
     val username: String? = null,
@@ -16,6 +17,9 @@ data class AppProfileSnapshot(
     val bodyCanSave: Boolean = false,
     val bodyIsSaving: Boolean = false,
     val bodyFeedback: AppUsernameFeedback? = null,
+    val dateOfBirth: String? = null,
+    val birthdayIsSaving: Boolean = false,
+    val birthdayFeedback: AppBirthdayFeedback? = null,
 )
 
 data class AppSnapshot(val sessionId: Long, val accountId: String?, val profile: AppProfileSnapshot)
@@ -43,6 +47,9 @@ class AppRuntime : AutoCloseable {
         val bodyFeedback = if (profile.isNull("body_feedback")) null else profile.getJSONObject("body_feedback").let {
             AppUsernameFeedback(it.get("kind") as String, it.get("message") as String)
         }
+        val birthdayFeedback = if (profile.isNull("birthday_feedback")) null else profile.getJSONObject("birthday_feedback").let {
+            AppBirthdayFeedback(it.get("kind") as String, it.get("code") as String, it.get("message") as String)
+        }
         return AppSnapshot(
             json.getLong("session_id"), json.nullableString("account_id"),
             AppProfileSnapshot(
@@ -50,6 +57,7 @@ class AppRuntime : AutoCloseable {
                 profile.get("username_can_save") as Boolean, profile.get("username_is_saving") as Boolean, feedback,
                 profile.nullableString("body_id"), profile.get("body_draft") as String,
                 profile.get("body_can_save") as Boolean, profile.get("body_is_saving") as Boolean, bodyFeedback,
+                profile.nullableString("date_of_birth"), profile.get("birthday_is_saving") as Boolean, birthdayFeedback,
             ),
         )
     }
