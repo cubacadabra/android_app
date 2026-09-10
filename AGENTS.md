@@ -2,6 +2,12 @@ this app is an android port from ../ios_app
 
 make sure ui changes work in dark or light mode
 
+For every new Jetpack Compose screen, use a theme-aware root container such as
+`Surface` with `MaterialTheme.colorScheme.background` and
+`MaterialTheme.colorScheme.onBackground`. Do not leave a screen rooted in a
+bare `Column` or other layout container, since it can render with the wrong
+background in dark mode.
+
 you can work in ../backend too if needed
 
 any changes to backend have to be backwards compatible with older clients
