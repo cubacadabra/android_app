@@ -15,6 +15,8 @@ data class AppCatalogEntry(
 data class AppCatalogFeedback(val kind: String, val code: String, val message: String)
 data class AppCatalogSnapshot(
     val entries: List<AppCatalogEntry> = emptyList(),
+    val page: Int = 0,
+    val hasNextPage: Boolean = false,
     val isLoading: Boolean = false,
     val feedback: AppCatalogFeedback? = null,
 )
@@ -93,7 +95,13 @@ class AppRuntime : AutoCloseable {
                 profile.get("body_can_save") as Boolean, profile.get("body_is_saving") as Boolean, bodyFeedback,
                 profile.nullableString("date_of_birth"), profile.get("birthday_is_saving") as Boolean, birthdayFeedback,
             ),
-            AppCatalogSnapshot(catalogEntries, catalogJSON.getBoolean("is_loading"), catalogFeedback),
+            AppCatalogSnapshot(
+                entries = catalogEntries,
+                page = catalogJSON.getInt("page"),
+                hasNextPage = catalogJSON.getBoolean("has_next_page"),
+                isLoading = catalogJSON.getBoolean("is_loading"),
+                feedback = catalogFeedback,
+            ),
         )
     }
 

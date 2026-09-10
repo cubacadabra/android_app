@@ -264,8 +264,9 @@ private fun MoreCubesScreen(
     val backendUrl = runCatching { java.net.URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/") }.getOrNull()
     val cubes = appState.catalog.entries.mapNotNull { entry ->
         val packagePath = if (BuildConfig.DEBUG) entry.packagePath else entry.assetBaseURL ?: entry.packagePath
+        val normalizedPackagePath = packagePath.trimEnd('/') + "/"
         val packageUrl = runCatching {
-            backendUrl?.let { java.net.URL(it, packagePath) }
+            backendUrl?.let { java.net.URL(it, normalizedPackagePath) }
         }.getOrNull()
         val backendHost = backendUrl?.host
         val isBackendPackage = packageUrl != null && backendUrl != null

@@ -166,7 +166,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun changeMorph(bodyID: String) = dispatchApp(JSONObject().put("type", "body_changed").put("body_id", bodyID))
     fun saveMorph() = dispatchApp(JSONObject().put("type", "save_body"))
     fun saveBirthday(dateOfBirth: String) = dispatchApp(JSONObject().put("type", "save_birthday").put("date_of_birth", dateOfBirth))
-    fun loadCatalog(pageSize: Int = 20) = dispatchApp(JSONObject().put("type", "load_catalog").put("page_size", pageSize))
+    fun loadCatalog(page: Int = 1, pageSize: Int = 20) = dispatchApp(
+        JSONObject().put("type", "load_catalog").put("page", page).put("page_size", pageSize),
+    )
 
     private fun replaceAppSession() {
         appRequests.values.toList().forEach { it.cancel() }
