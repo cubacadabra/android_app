@@ -412,35 +412,41 @@ private fun MenuDivider() {
 private fun ProfileUsernameScreen(state: AppUiState, model: AppViewModel) {
     val profile = state.profileUsername
     val focusRequester = remember { FocusRequester() }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 18.dp)
-            .widthIn(max = 560.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        Text("USERNAME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
-        Text("Choose a name other players can find you by.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
-        OutlinedTextField(
-            value = profile.usernameDraft,
-            onValueChange = model::changeProfileUsername,
-            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-            label = { Text("Your username") },
-            singleLine = true,
-        )
-        Text("Use 2–24 letters, numbers, _ or -.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(.68f))
-        profile.usernameFeedback?.let { feedback ->
-            Text(feedback.message, color = if (feedback.kind == "error") MaterialTheme.colorScheme.error else Color(0xFF3E8B63), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        }
-        Button(
-            onClick = { model.saveProfileUsername() },
-            enabled = profile.usernameCanSave,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 18.dp)
+                .widthIn(max = 560.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            if (profile.usernameIsSaving) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
-            else Text("SAVE USERNAME", fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("USERNAME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
+            Text("Choose a name other players can find you by.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
+            OutlinedTextField(
+                value = profile.usernameDraft,
+                onValueChange = model::changeProfileUsername,
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                label = { Text("Your username") },
+                singleLine = true,
+            )
+            Text("Use 2–24 letters, numbers, _ or -.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(.68f))
+            profile.usernameFeedback?.let { feedback ->
+                Text(feedback.message, color = if (feedback.kind == "error") MaterialTheme.colorScheme.error else Color(0xFF3E8B63), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Button(
+                onClick = { model.saveProfileUsername() },
+                enabled = profile.usernameCanSave,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            ) {
+                if (profile.usernameIsSaving) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
+                else Text("SAVE USERNAME", fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            }
         }
     }
     LaunchedEffect(Unit) { model.beginProfileUsernameEdit(); focusRequester.requestFocus() }
