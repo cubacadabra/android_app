@@ -457,48 +457,54 @@ private fun ProfileUsernameScreen(state: AppUiState, model: AppViewModel) {
 private fun SafetyCenterScreen(appState: AppUiState, state: GameUiState, appModel: AppViewModel) {
     var blockTarget by remember { mutableStateOf<RemotePlayerSummary?>(null) }
     LaunchedEffect(Unit) { appModel.loadBlockedUsers() }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 18.dp)
-            .widthIn(max = 720.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        Text("PLAYERS & SAFETY", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
-        Text("Block another player or manage people you have blocked.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
-        appState.safety.feedback?.let { feedback ->
-            Text(feedback.message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-        }
-        Text("PLAYERS HERE", modifier = Modifier.padding(top = 18.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
-        MenuGroup {
-            if (state.activePlayers.isEmpty()) {
-                Text("No other players are visible right now.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(.68f))
-            } else {
-                state.activePlayers.forEachIndexed { index, player ->
-                    PlayerSafetyRow(player) { blockTarget = player }
-                    if (index < state.activePlayers.lastIndex) MenuDivider()
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 18.dp)
+                .widthIn(max = 720.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("PLAYERS & SAFETY", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
+            Text("Block another player or manage people you have blocked.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
+            appState.safety.feedback?.let { feedback ->
+                Text(feedback.message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+            }
+            Text("PLAYERS HERE", modifier = Modifier.padding(top = 18.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
+            MenuGroup {
+                if (state.activePlayers.isEmpty()) {
+                    Text("No other players are visible right now.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(.68f))
+                } else {
+                    state.activePlayers.forEachIndexed { index, player ->
+                        PlayerSafetyRow(player) { blockTarget = player }
+                        if (index < state.activePlayers.lastIndex) MenuDivider()
+                    }
                 }
             }
-        }
-        Text("BLOCKED ON THIS DEVICE", modifier = Modifier.padding(top = 22.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
-        MenuGroup {
-            if (appState.safety.blockedUserIDs.isEmpty()) {
-                Text("No blocked players.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(.68f))
-            } else {
-                appState.safety.blockedUserIDs.sorted().forEachIndexed { index, playerID ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Player ${playerID.takeLast(4).uppercase()}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Button(
-                            onClick = { appModel.unblockUser(playerID) },
-                            enabled = appState.safety.pendingUserID != playerID,
-                        ) {
-                            if (appState.safety.pendingUserID == playerID) CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp)
-                            else Text("UNBLOCK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("BLOCKED ON THIS DEVICE", modifier = Modifier.padding(top = 22.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
+            MenuGroup {
+                if (appState.safety.blockedUserIDs.isEmpty()) {
+                    Text("No blocked players.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(.68f))
+                } else {
+                    appState.safety.blockedUserIDs.sorted().forEachIndexed { index, playerID ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Player ${playerID.takeLast(4).uppercase()}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                            Button(
+                                onClick = { appModel.unblockUser(playerID) },
+                                enabled = appState.safety.pendingUserID != playerID,
+                            ) {
+                                if (appState.safety.pendingUserID == playerID) CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp)
+                                else Text("UNBLOCK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
+                        if (index < state.blockedPlayerIDs.size - 1) MenuDivider()
                     }
-                    if (index < state.blockedPlayerIDs.size - 1) MenuDivider()
                 }
             }
         }
