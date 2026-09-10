@@ -5,6 +5,19 @@ import org.json.JSONObject
 
 data class AppUsernameFeedback(val kind: String, val message: String)
 data class AppBirthdayFeedback(val kind: String, val code: String, val message: String)
+data class AppCatalogEntry(
+    val cubeID: String,
+    val version: String,
+    val displayName: String,
+    val packagePath: String,
+    val assetBaseURL: String?,
+)
+data class AppCatalogFeedback(val kind: String, val code: String, val message: String)
+data class AppCatalogSnapshot(
+    val entries: List<AppCatalogEntry> = emptyList(),
+    val isLoading: Boolean = false,
+    val feedback: AppCatalogFeedback? = null,
+)
 
 data class AppProfileSnapshot(
     val username: String? = null,
@@ -22,8 +35,13 @@ data class AppProfileSnapshot(
     val birthdayFeedback: AppBirthdayFeedback? = null,
 )
 
-data class AppSnapshot(val sessionId: Long, val accountId: String?, val profile: AppProfileSnapshot)
-data class AppHttpEffect(val effectId: Long, val accountId: String, val method: String, val path: String, val body: String)
+data class AppSnapshot(
+    val sessionId: Long,
+    val accountId: String?,
+    val profile: AppProfileSnapshot,
+    val catalog: AppCatalogSnapshot,
+)
+data class AppHttpEffect(val effectId: Long, val accountId: String?, val method: String, val path: String, val body: String)
 
 /** Main-thread owned by AppViewModel. JSON shape errors are binding/build errors. */
 class AppRuntime : AutoCloseable {
@@ -39,6 +57,22 @@ class AppRuntime : AutoCloseable {
         val json = JSONObject(String(NativeEngine.nativeAppSnapshot(handle), Charsets.UTF_8))
         check(json.getInt("protocol_version") == 1) { "Unsupported app protocol" }
         val profile = json.getJSONObject("profile")
+        val catalogJSON = json.getJSONObject("catalog")
+        val catalogEntriesJSON = catalogJSON.getJSONArray("entries")
+        val catalogEntries = List(catalogEntriesJSON.length()) { index ->
+            catalogEntriesJSON.getJSONObject(index).let { entry ->
+                AppCatalogEntry(
+                    cubeID = entry.getString("cube_id"),
+                    version = entry.getString("version"),
+                    displayName = entry.getString("display_name"),
+                    packagePath = entry.getString("package_path"),
+                    assetBaseURL = entry.nullableString("asset_base_url"),
+                )
+            }
+        }
+        val catalogFeedback = if (catalogJSON.isNull("feedback")) null else catalogJSON.getJSONObject("feedback").let {
+            AppCatalogFeedback(it.getString("kind"), it.getString("code"), it.getString("message"))
+        }
         val feedback = if (profile.isNull("username_feedback")) null else profile.getJSONObject("username_feedback").let {
             val kind = it.get("kind") as String
             check(kind == "success" || kind == "error")
@@ -59,6 +93,7 @@ class AppRuntime : AutoCloseable {
                 profile.get("body_can_save") as Boolean, profile.get("body_is_saving") as Boolean, bodyFeedback,
                 profile.nullableString("date_of_birth"), profile.get("birthday_is_saving") as Boolean, birthdayFeedback,
             ),
+            AppCatalogSnapshot(catalogEntries, catalogJSON.getBoolean("is_loading"), catalogFeedback),
         )
     }
 
@@ -67,7 +102,7 @@ class AppRuntime : AutoCloseable {
         val bytes = NativeEngine.nativeAppPollEffect(handle) ?: return null
         val json = JSONObject(String(bytes, Charsets.UTF_8))
         check(json.getString("type") == "http_request") { "Unsupported app effect" }
-        return AppHttpEffect(json.getLong("effect_id"), json.get("account_id") as String,
+        return AppHttpEffect(json.getLong("effect_id"), json.nullableString("account_id"),
             json.get("method") as String, json.get("path") as String, json.get("body") as String)
     }
 

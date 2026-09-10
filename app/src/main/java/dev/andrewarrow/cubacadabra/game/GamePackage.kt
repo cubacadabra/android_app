@@ -145,6 +145,7 @@ data class GameImageAtlas(
 class GamePackageException(message: String) : Exception(message)
 
 object ClientConfiguration {
+    const val publicAssetHost = "assets.cubacadabra.com"
     val gameBaseUrl: String get() = BuildConfig.CUBACADABRA_GAME_BASE_URL
     val backendUrl: String get() = BuildConfig.CUBACADABRA_BACKEND_URL
     val backendApiUrl: String

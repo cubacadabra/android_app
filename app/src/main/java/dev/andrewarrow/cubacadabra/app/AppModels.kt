@@ -2,6 +2,7 @@ package dev.andrewarrow.cubacadabra.app
 
 import dev.andrewarrow.cubacadabra.game.AppAuthUser
 import dev.andrewarrow.cubacadabra.game.AppProfileSnapshot
+import dev.andrewarrow.cubacadabra.game.AppCatalogSnapshot
 
 data class AppUiState(
     val isRestoring: Boolean = true,
@@ -10,6 +11,7 @@ data class AppUiState(
     val loginInProgress: Boolean = false,
     val loginErrorMessage: String? = null,
     val profileUsername: AppProfileSnapshot = AppProfileSnapshot(),
+    val catalog: AppCatalogSnapshot = AppCatalogSnapshot(),
 ) {
     val isAuthenticated: Boolean get() = authUser != null
 }

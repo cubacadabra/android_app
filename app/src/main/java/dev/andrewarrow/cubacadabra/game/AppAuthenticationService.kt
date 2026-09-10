@@ -53,7 +53,7 @@ class AppAuthenticationService(context: Context) {
     // Called while draining effects on the main thread, before launching IO.
     fun appAccessToken(): String? = tokenStore.load()?.first
 
-    suspend fun performAppRequest(effect: AppHttpEffect, accessToken: String): HttpResponse =
+    suspend fun performAppRequest(effect: AppHttpEffect, accessToken: String?): HttpResponse =
         requestRaw(effect.path, effect.method, effect.body, accessToken)
 
     fun clearTokens() = tokenStore.clear()

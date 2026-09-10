@@ -166,6 +166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun changeMorph(bodyID: String) = dispatchApp(JSONObject().put("type", "body_changed").put("body_id", bodyID))
     fun saveMorph() = dispatchApp(JSONObject().put("type", "save_body"))
     fun saveBirthday(dateOfBirth: String) = dispatchApp(JSONObject().put("type", "save_birthday").put("date_of_birth", dateOfBirth))
+    fun loadCatalog(pageSize: Int = 20) = dispatchApp(JSONObject().put("type", "load_catalog").put("page_size", pageSize))
 
     private fun replaceAppSession() {
         appRequests.values.toList().forEach { it.cancel() }
@@ -183,7 +184,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         profileRevision += 1
         appRuntime.dispatch(action)
         appSnapshot = appRuntime.snapshot()
-        update { copy(profileUsername = appSnapshot.profile) }
+        update { copy(profileUsername = appSnapshot.profile, catalog = appSnapshot.catalog) }
         val user = _state.value.authUser
         if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
             val name = appSnapshot.profile.username
@@ -200,7 +201,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         while (true) {
             val effect = appRuntime.pollEffect() ?: break
             val token = authentication.appAccessToken()
-            if (effect.accountId != _state.value.authUser?.id || token == null) {
+            if ((effect.accountId != null && effect.accountId != _state.value.authUser?.id)
+                || (effect.accountId != null && token == null)) {
                 dispatchApp(JSONObject().put("type", "http_completed").put("effect_id", effect.effectId)
                     .put("status", 401).put("body", ""))
                 continue

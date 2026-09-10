@@ -43,15 +43,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.andrewarrow.cubacadabra.game.CubeCatalogService
+import dev.andrewarrow.cubacadabra.BuildConfig
+import dev.andrewarrow.cubacadabra.app.AppUiState
+import dev.andrewarrow.cubacadabra.app.AppViewModel
+import dev.andrewarrow.cubacadabra.game.ClientConfiguration
 import dev.andrewarrow.cubacadabra.game.GameCatalog
 import dev.andrewarrow.cubacadabra.game.GameCatalogEntry
 import dev.andrewarrow.cubacadabra.game.GameUiState
-import dev.andrewarrow.cubacadabra.app.AppUiState
-import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import dev.andrewarrow.cubacadabra.game.RemotePlayerSummary
-import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
@@ -88,7 +88,7 @@ internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
         }
         HomeDestination.More -> {
             val gameState by model.state.collectAsStateWithLifecycle()
-            MoreCubesScreen(gameState, model::selectGame)
+            MoreCubesScreen(appState, gameState, appModel, model::selectGame)
         }
         HomeDestination.Username -> ProfileUsernameScreen(appState, appModel)
         HomeDestination.Morph -> MorphSelectionScreen(appState, appModel)
@@ -254,25 +254,43 @@ private fun GameMenuRow(
 }
 
 @Composable
-private fun MoreCubesScreen(state: GameUiState, onSelectGame: (GameCatalogEntry) -> Unit) {
-    val service = remember { CubeCatalogService() }
-    var cubes by remember { mutableStateOf(emptyList<GameCatalogEntry>()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
+private fun MoreCubesScreen(
+    appState: AppUiState,
+    state: GameUiState,
+    appModel: AppViewModel,
+    onSelectGame: (GameCatalogEntry) -> Unit,
+) {
     var reloadKey by remember { mutableStateOf(0) }
+    val backendUrl = runCatching { java.net.URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/") }.getOrNull()
+    val cubes = appState.catalog.entries.mapNotNull { entry ->
+        val packagePath = if (BuildConfig.DEBUG) entry.packagePath else entry.assetBaseURL ?: entry.packagePath
+        val packageUrl = runCatching {
+            backendUrl?.let { java.net.URL(it, packagePath) }
+        }.getOrNull()
+        val backendHost = backendUrl?.host
+        val isBackendPackage = packageUrl != null && backendUrl != null
+            && packageUrl.protocol == backendUrl.protocol
+            && packageUrl.host.equals(backendHost, ignoreCase = true)
+        val isPublicAsset = !BuildConfig.DEBUG && packageUrl != null
+            && packageUrl.protocol == "https"
+            && packageUrl.host.equals(ClientConfiguration.publicAssetHost, ignoreCase = true)
+        if (packageUrl == null || !entry.packagePath.startsWith("/cubes/")
+            || !packagePath.endsWith("/") || !packageUrl.path.startsWith("/cubes/")
+            || !(isBackendPackage || isPublicAsset)) {
+            null
+        } else {
+            GameCatalogEntry(
+                id = entry.cubeID,
+                title = entry.displayName,
+                subtitle = "${entry.cubeID} · v${entry.version}",
+                version = entry.version,
+                packageBaseUrl = packageUrl.toString(),
+            )
+        }
+    }
 
     LaunchedEffect(reloadKey) {
-        isLoading = true
-        loadError = null
-        try {
-            cubes = service.firstPage()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            loadError = "We couldn’t load the cubes. Please try again."
-        } finally {
-            isLoading = false
-        }
+        appModel.loadCatalog()
     }
 
     Surface(
@@ -303,7 +321,7 @@ private fun MoreCubesScreen(state: GameUiState, onSelectGame: (GameCatalogEntry)
                 color = MaterialTheme.colorScheme.onBackground.copy(.78f),
             )
             when {
-                isLoading -> Row(
+                appState.catalog.isLoading -> Row(
                     modifier = Modifier.padding(vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -311,8 +329,8 @@ private fun MoreCubesScreen(state: GameUiState, onSelectGame: (GameCatalogEntry)
                     CircularProgressIndicator(Modifier.width(20.dp).height(20.dp), strokeWidth = 2.dp)
                     Text("Loading cubes…", color = MaterialTheme.colorScheme.onBackground.copy(.68f))
                 }
-                loadError != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(loadError.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                appState.catalog.feedback != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appState.catalog.feedback?.message.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                     TextButton(onClick = { reloadKey += 1 }) {
                         Text("TRY AGAIN", fontWeight = FontWeight.Bold)
                     }
