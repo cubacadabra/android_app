@@ -127,13 +127,15 @@ class AppAuthenticationService(context: Context) {
                 requestMethod = method
                 setRequestProperty("Accept", "application/json")
                 accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-                if (body != null) {
+                if (!body.isNullOrEmpty()) {
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
                 }
             }
         try {
-            body?.let { connection.outputStream.use { stream -> stream.write(it.toByteArray(Charsets.UTF_8)) } }
+            body?.takeIf { it.isNotEmpty() }?.let {
+                connection.outputStream.use { stream -> stream.write(it.toByteArray(Charsets.UTF_8)) }
+            }
             val statusCode = connection.responseCode
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
