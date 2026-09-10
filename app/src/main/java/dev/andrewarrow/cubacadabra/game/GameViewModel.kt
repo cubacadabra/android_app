@@ -64,6 +64,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var gameLoadGeneration = 0L
     private var renderer: Long = 0
     private var packageImageAtlas: GameImageAtlas? = null
+    private var packageMorphPacks: List<ByteArray> = emptyList()
     private var lobbyEnabled = true
     private var lastFrameNanos: Long? = null
     private var forward = 0f
@@ -216,6 +217,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun createEngine(loaded: LoadedGamePackage): Long {
         packageImageAtlas = GameImageAtlasBuilder.make(loaded.imageAssets)
+        packageMorphPacks = loaded.morphPacks.map { it.data }
         val created = NativeEngine.nativeCreate(
             loaded.manifest.toByteArray(StandardCharsets.UTF_8),
             loaded.script.toByteArray(StandardCharsets.UTF_8),
@@ -494,6 +496,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     atlas.regionsJson.toByteArray(StandardCharsets.UTF_8),
                 )
                 if (!uploaded) Log.e(TAG, "package image atlas upload failed")
+            }
+            packageMorphPacks.forEach { pack ->
+                if (!NativeEngine.nativeRegisterMorphPack(renderer, pack)) {
+                    Log.e(TAG, "morph pack upload failed")
+                }
             }
         }
         if (renderer == 0L && width > 0f && height > 0f) {

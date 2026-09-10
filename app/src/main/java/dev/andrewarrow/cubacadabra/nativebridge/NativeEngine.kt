@@ -59,6 +59,7 @@ internal object NativeEngine {
         pixels: ByteArray,
         regions: ByteArray,
     ): Boolean
+    external fun nativeRegisterMorphPack(renderer: Long, pack: ByteArray): Boolean
     external fun nativeDrawRenderer(renderer: Long, engine: Long)
     external fun nativeDestroyRenderer(renderer: Long)
     external fun nativeSnapshotLength(): Int

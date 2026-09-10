@@ -328,6 +328,22 @@ static jboolean JNICALL nativeSetPackageImageAtlas(JNIEnv *env, jclass klass, jl
     return applied ? JNI_TRUE : JNI_FALSE;
 }
 
+static jboolean JNICALL nativeRegisterMorphPack(JNIEnv *env, jclass klass, jlong value, jbyteArray pack) {
+    (void)klass;
+    AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
+    if (!holder || !pack) return JNI_FALSE;
+    jsize length = (*env)->GetArrayLength(env, pack);
+    jbyte *source = (*env)->GetByteArrayElements(env, pack, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t accepted = engine_renderer_register_morph_pack(
+        holder->renderer,
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, pack, source, JNI_ABORT);
+    return accepted ? JNI_TRUE : JNI_FALSE;
+}
+
 static void JNICALL nativeDrawRenderer(JNIEnv *env, jclass klass, jlong value, jlong engineValue) {
     (void)env; (void)klass;
     AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
@@ -427,6 +443,7 @@ static JNINativeMethod methods[] = {
     {"nativeCreateRenderer", "(JLandroid/view/Surface;FF)J", (void *)nativeCreateRenderer},
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeSetPackageImageAtlas", "(JII[B[B)Z", (void *)nativeSetPackageImageAtlas},
+    {"nativeRegisterMorphPack", "(J[B)Z", (void *)nativeRegisterMorphPack},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},

@@ -19,6 +19,7 @@ class GamePackageLoader(context: Context) {
         // an app update, matching the iOS loader's versioned cache keys.
         const val CACHE_VERSION = "v4"
         const val MAXIMUM_IMAGE_ASSETS = 16
+        const val MAXIMUM_MORPH_PACKS = 32
         val AUDIO_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
         val AUDIO_PATH_PATTERN = Regex(
             "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wav$",
@@ -29,6 +30,11 @@ class GamePackageLoader(context: Context) {
             "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.(?:png|jpe?g)$",
             RegexOption.IGNORE_CASE,
         )
+        val MORPH_ID_PATTERN = Regex("^[a-z0-9-]+:[a-z0-9_-]+(?:/[a-z0-9_-]+)*\\.v[1-9][0-9]*$")
+        val MORPH_PATH_PATTERN = Regex(
+            "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.morphpack$",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private val applicationContext = context.applicationContext
@@ -36,6 +42,8 @@ class GamePackageLoader(context: Context) {
     private val maximumManifestBytes = 512 * 1024
     private val maximumScriptBytes = 512 * 1024
     private val maximumImageAssetBytes = 8 * 1024 * 1024
+    private val maximumMorphPackBytes = 64 * 1024 * 1024
+    private val maximumMorphResidentBytes = 16 * 1024 * 1024
 
     suspend fun load(
         gameID: String = "first-game",
@@ -180,6 +188,7 @@ class GamePackageLoader(context: Context) {
             script,
             audioAssets,
             emptyMap(),
+            emptyList(),
             GamePackageVersion.parse(manifestObject.optString("version", null)),
         )
     }
@@ -221,7 +230,46 @@ class GamePackageLoader(context: Context) {
                 put(id, LoadedGameImageAsset(data))
             }
         }
-        return loaded.copy(imageAssets = images)
+        return loaded.copy(imageAssets = images, morphPacks = loadMorphPacks(loaded, imageBaseUrl, bundledDirectory))
+    }
+
+    private fun loadMorphPacks(
+        loaded: LoadedGamePackage,
+        baseUrl: String?,
+        bundledDirectory: String?,
+    ): List<LoadedGameMorphPack> {
+        val definitions = loaded.packageData.assets?.morphPacks.orEmpty()
+        if (definitions.size > MAXIMUM_MORPH_PACKS) {
+            throw GamePackageException("This game declares too many morph packs.")
+        }
+        var totalBytes = 0
+        return definitions.toSortedMap().map { (id, definition) ->
+            if (!MORPH_ID_PATTERN.matches(id) || !MORPH_PATH_PATTERN.matches(definition.path)) {
+                throw GamePackageException("The game morph pack \"$id\" is invalid.")
+            }
+            val data = when {
+                bundledDirectory != null -> {
+                    val path = "$bundledDirectory/${definition.path}"
+                    applicationContext.assets.open(path).use { it.readBytes() }
+                }
+                baseUrl != null -> {
+                    val url = runCatching { URL(baseUrl + definition.path) }.getOrNull()
+                    if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                        throw GamePackageException("The game morph pack \"$id\" is invalid.")
+                    }
+                    fetch(url, maximumMorphPackBytes)
+                }
+                else -> throw GamePackageException("The game morph pack \"$id\" is invalid.")
+            }
+            if (data.isEmpty() || data.size > maximumMorphPackBytes) {
+                throw GamePackageException("The game morph pack \"$id\" is invalid.")
+            }
+            totalBytes += data.size
+            if (totalBytes > maximumMorphResidentBytes) {
+                throw GamePackageException("The game morph packs exceed the renderer residency limit.")
+            }
+            LoadedGameMorphPack(data)
+        }
     }
 
     private fun normalizeAudioAssets(
