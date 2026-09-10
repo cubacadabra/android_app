@@ -54,12 +54,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var onAccountRequested: (() -> Unit)? = null
     var onSignOutRequested: (() -> Unit)? = null
     var onSessionRejected: ((Long) -> Unit)? = null
-    private val preferences = application.getSharedPreferences("cubacadabra", 0)
-    private val _state = MutableStateFlow(
-        GameUiState(
-            blockedPlayerIDs = preferences.getStringSet("blocked-player-ids", emptySet()).orEmpty(),
-        ),
-    )
+    private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
     private val loader = GamePackageLoader(application)
@@ -137,6 +132,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val previous = accountSession
         if (previous == session) return
         accountSession = session
+        if (accountSession.blockedUserIDs != _state.value.blockedPlayerIDs) {
+            update { copy(blockedPlayerIDs = session.blockedUserIDs) }
+            update { copy(activePlayers = activeRemotePlayers()) }
+            if (engine != 0L) {
+                NativeEngine.nativeSetIgnoredPlayerIds(engine, JSONArray(session.blockedUserIDs.toList()).toString().toByteArray(StandardCharsets.UTF_8))
+            }
+        }
         if (previous.accountID != session.accountID) {
             gameLoadGeneration += 1
             update { copy(isLoading = false, isSelectingGame = false, selectingGameID = null) }
@@ -155,9 +157,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             NativeEngine.nativeSetUsername(engine, _state.value.username.toByteArray(Charsets.UTF_8))
             NativeEngine.nativeSetAuthenticated(engine, session.accountID != null)
             if (previous.bodyID != session.bodyID) applyAccountAppearance(engine)
-        }
-        if (previous.accountID != session.accountID && session.accountID != null) {
-            refreshBlockedPlayers()
         }
     }
 
@@ -813,64 +812,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-    fun blockPlayer(player: RemotePlayerSummary) {
-        val targetID = player.id
-        val current = _state.value.blockedPlayerIDs
-        if (targetID in current || accountSession.accountID == null) return
-        update { copy(blockedPlayerIDs = current + targetID) }
-        update { copy(activePlayers = activeRemotePlayers()) }
-        persistBlockedIDs()
-        viewModelScope.launch {
-            runCatching { moderationService().blockPlayer(targetID) }
-                .onFailure {
-                    update {
-                        copy(
-                            blockedPlayerIDs = blockedPlayerIDs - targetID,
-                            activePlayers = activeRemotePlayers(),
-                        )
-                    }
-                    persistBlockedIDs()
-                }
-        }
-    }
-
-    fun unblockPlayer(playerID: String) {
-        if (playerID !in _state.value.blockedPlayerIDs || accountSession.accountID == null) return
-        update { copy(blockedPlayerIDs = blockedPlayerIDs - playerID) }
-        update { copy(activePlayers = activeRemotePlayers()) }
-        persistBlockedIDs()
-        viewModelScope.launch {
-            runCatching { moderationService().unblockPlayer(playerID) }
-                .onFailure {
-                    update {
-                        copy(
-                            blockedPlayerIDs = blockedPlayerIDs + playerID,
-                            activePlayers = activeRemotePlayers(),
-                        )
-                    }
-                    persistBlockedIDs()
-                }
-        }
-    }
-
-    private fun refreshBlockedPlayers() {
-        if (accountSession.accountID == null) return
-        viewModelScope.launch {
-            runCatching { moderationService().fetchBlockedPlayerIds() }
-                .onSuccess { ids ->
-                    update { copy(blockedPlayerIDs = blockedPlayerIDs + ids, activePlayers = activeRemotePlayers()) }
-                    persistBlockedIDs()
-                }
-        }
-    }
-
-    private fun moderationService() = ModerationService(socket.playerId, accountSession.accessToken)
-
     private fun blockedIDs() = _state.value.blockedPlayerIDs
-
-    private fun persistBlockedIDs() {
-        preferences.edit().putStringSet("blocked-player-ids", _state.value.blockedPlayerIDs).apply()
-    }
 
     private fun defaultPlayerLabel(playerID: String): String {
         val platform = when {

@@ -13,6 +13,13 @@ data class AppCatalogEntry(
     val assetBaseURL: String?,
 )
 data class AppCatalogFeedback(val kind: String, val code: String, val message: String)
+data class AppSafetySnapshot(
+    val blockedUserIDs: List<String> = emptyList(),
+    val isLoading: Boolean = false,
+    val pendingAction: String? = null,
+    val pendingUserID: String? = null,
+    val feedback: AppCatalogFeedback? = null,
+)
 data class AppCatalogSnapshot(
     val entries: List<AppCatalogEntry> = emptyList(),
     val page: Int = 0,
@@ -42,6 +49,7 @@ data class AppSnapshot(
     val accountId: String?,
     val profile: AppProfileSnapshot,
     val catalog: AppCatalogSnapshot,
+    val safety: AppSafetySnapshot,
 )
 data class AppHttpEffect(val effectId: Long, val accountId: String?, val method: String, val path: String, val body: String)
 
@@ -60,6 +68,7 @@ class AppRuntime : AutoCloseable {
         check(json.getInt("protocol_version") == 1) { "Unsupported app protocol" }
         val profile = json.getJSONObject("profile")
         val catalogJSON = json.getJSONObject("catalog")
+        val safetyJSON = json.getJSONObject("safety")
         val catalogEntriesJSON = catalogJSON.getJSONArray("entries")
         val catalogEntries = List(catalogEntriesJSON.length()) { index ->
             catalogEntriesJSON.getJSONObject(index).let { entry ->
@@ -74,6 +83,13 @@ class AppRuntime : AutoCloseable {
         }
         val catalogFeedback = if (catalogJSON.isNull("feedback")) null else catalogJSON.getJSONObject("feedback").let {
             AppCatalogFeedback(it.getString("kind"), it.getString("code"), it.getString("message"))
+        }
+        val safetyFeedback = if (safetyJSON.isNull("feedback")) null else safetyJSON.getJSONObject("feedback").let {
+            AppCatalogFeedback(it.getString("kind"), it.getString("code"), it.getString("message"))
+        }
+        val blockedUserIDsJSON = safetyJSON.getJSONArray("blocked_user_ids")
+        val blockedUserIDs = List(blockedUserIDsJSON.length()) { index ->
+            blockedUserIDsJSON.getString(index)
         }
         val feedback = if (profile.isNull("username_feedback")) null else profile.getJSONObject("username_feedback").let {
             val kind = it.get("kind") as String
@@ -101,6 +117,13 @@ class AppRuntime : AutoCloseable {
                 hasNextPage = catalogJSON.getBoolean("has_next_page"),
                 isLoading = catalogJSON.getBoolean("is_loading"),
                 feedback = catalogFeedback,
+            ),
+            AppSafetySnapshot(
+                blockedUserIDs = blockedUserIDs,
+                isLoading = safetyJSON.getBoolean("is_loading"),
+                pendingAction = safetyJSON.nullableString("pending_action"),
+                pendingUserID = safetyJSON.nullableString("pending_user_id"),
+                feedback = safetyFeedback,
             ),
         )
     }

@@ -65,6 +65,9 @@ fun CubacadabraApp(model: GameViewModel = viewModel(), appModel: AppViewModel = 
         appModel.start()
         appModel.gameSession.collect { model.applyAccountSession(it) }
     }
+    LaunchedEffect(appState.authUser?.id) {
+        if (appState.authUser?.id != null) appModel.loadBlockedUsers()
+    }
     LaunchedEffect(appState.isRestoring) {
         if (!appState.isRestoring && !appState.isAuthenticated) model.load()
     }

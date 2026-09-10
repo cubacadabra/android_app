@@ -32,7 +32,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var profileRevision = 0L
     private var started = false
     private var accessToken: String? = null
-    private val _state = MutableStateFlow(AppUiState(profileUsername = appSnapshot.profile))
+    private val _state = MutableStateFlow(
+        AppUiState(profileUsername = appSnapshot.profile, safety = appSnapshot.safety),
+    )
     val state = _state.asStateFlow()
     private val _gameSession = MutableStateFlow(AccountGameSession())
     val gameSession = _gameSession.asStateFlow()
@@ -156,7 +158,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun publishGameSession() {
         val user = _state.value.authUser
-        _gameSession.value = AccountGameSession(appSnapshot.sessionId, user?.id, accessToken, user?.username, user?.bodyID)
+        _gameSession.value = AccountGameSession(
+            appSnapshot.sessionId,
+            user?.id,
+            accessToken,
+            user?.username,
+            user?.bodyID,
+            appSnapshot.safety.blockedUserIDs.toSet(),
+        )
     }
 
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
@@ -169,6 +178,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun loadCatalog(page: Int = 1, pageSize: Int = 20) = dispatchApp(
         JSONObject().put("type", "load_catalog").put("page", page).put("page_size", pageSize),
     )
+    fun loadBlockedUsers() = dispatchApp(JSONObject().put("type", "load_blocked_users"))
+    fun blockUser(userID: String) = dispatchApp(JSONObject().put("type", "block_user").put("user_id", userID))
+    fun unblockUser(userID: String) = dispatchApp(JSONObject().put("type", "unblock_user").put("user_id", userID))
 
     private fun replaceAppSession() {
         appRequests.values.toList().forEach { it.cancel() }
@@ -186,7 +198,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         profileRevision += 1
         appRuntime.dispatch(action)
         appSnapshot = appRuntime.snapshot()
-        update { copy(profileUsername = appSnapshot.profile, catalog = appSnapshot.catalog) }
+        update { copy(profileUsername = appSnapshot.profile, catalog = appSnapshot.catalog, safety = appSnapshot.safety) }
+        if (_gameSession.value.blockedUserIDs != appSnapshot.safety.blockedUserIDs.toSet()) {
+            publishGameSession()
+        }
         val user = _state.value.authUser
         if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
             val name = appSnapshot.profile.username

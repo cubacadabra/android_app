@@ -94,7 +94,7 @@ internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
         HomeDestination.Morph -> MorphSelectionScreen(appState, appModel)
         HomeDestination.Safety -> {
             val gameState by model.state.collectAsStateWithLifecycle()
-            SafetyCenterScreen(gameState, model)
+            SafetyCenterScreen(appState, gameState, appModel)
         }
     }
 }
@@ -454,8 +454,9 @@ private fun ProfileUsernameScreen(state: AppUiState, model: AppViewModel) {
 }
 
 @Composable
-private fun SafetyCenterScreen(state: GameUiState, model: GameViewModel) {
+private fun SafetyCenterScreen(appState: AppUiState, state: GameUiState, appModel: AppViewModel) {
     var blockTarget by remember { mutableStateOf<RemotePlayerSummary?>(null) }
+    LaunchedEffect(Unit) { appModel.loadBlockedUsers() }
     Column(
         Modifier
             .fillMaxSize()
@@ -467,6 +468,9 @@ private fun SafetyCenterScreen(state: GameUiState, model: GameViewModel) {
     ) {
         Text("PLAYERS & SAFETY", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
         Text("Block another player or manage people you have blocked.", fontSize = 17.sp, color = MaterialTheme.colorScheme.onBackground.copy(.78f))
+        appState.safety.feedback?.let { feedback ->
+            Text(feedback.message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+        }
         Text("PLAYERS HERE", modifier = Modifier.padding(top = 18.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
         MenuGroup {
             if (state.activePlayers.isEmpty()) {
@@ -480,13 +484,19 @@ private fun SafetyCenterScreen(state: GameUiState, model: GameViewModel) {
         }
         Text("BLOCKED ON THIS DEVICE", modifier = Modifier.padding(top = 22.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onBackground.copy(.62f))
         MenuGroup {
-            if (state.blockedPlayerIDs.isEmpty()) {
+            if (appState.safety.blockedUserIDs.isEmpty()) {
                 Text("No blocked players.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(.68f))
             } else {
-                state.blockedPlayerIDs.sorted().forEachIndexed { index, playerID ->
+                appState.safety.blockedUserIDs.sorted().forEachIndexed { index, playerID ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Player ${playerID.takeLast(4).uppercase()}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Button(onClick = { model.unblockPlayer(playerID) }) { Text("UNBLOCK", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        Button(
+                            onClick = { appModel.unblockUser(playerID) },
+                            enabled = appState.safety.pendingUserID != playerID,
+                        ) {
+                            if (appState.safety.pendingUserID == playerID) CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp)
+                            else Text("UNBLOCK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     if (index < state.blockedPlayerIDs.size - 1) MenuDivider()
                 }
@@ -499,7 +509,7 @@ private fun SafetyCenterScreen(state: GameUiState, model: GameViewModel) {
             title = { Text("Block ${player.username}?") },
             text = { Text("You will no longer see this player or their presence. You can unblock them later.") },
             confirmButton = {
-                Button(onClick = { model.blockPlayer(player); blockTarget = null }) { Text("BLOCK") }
+                Button(onClick = { appModel.blockUser(player.id); blockTarget = null }) { Text("BLOCK") }
             },
             dismissButton = {
                 TextButton(onClick = { blockTarget = null }) { Text("CANCEL") }
