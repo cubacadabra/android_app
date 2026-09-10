@@ -1,6 +1,7 @@
 package dev.andrewarrow.cubacadabra.game
 
 import dev.andrewarrow.cubacadabra.BuildConfig
+import org.json.JSONObject
 
 data class GamePackage(
     val startWorld: String,
@@ -10,6 +11,7 @@ data class GamePackage(
     val scene: SceneDefinition,
     val palette: Map<String, String>,
     val world: WorldSettings,
+    val server: JSONObject?,
     val launchPads: List<LaunchPadDefinition>,
     val blocks: List<BlockDefinition>,
     val worlds: Map<String, WorldDefinition>,
@@ -20,7 +22,7 @@ data class GamePackage(
         get() = if (lobbyEnabled || startWorld != "lobby") startWorld else launch.destinationWorld
 
     fun worldDefinition(id: String): WorldDefinition? = if (id == "lobby") {
-        WorldDefinition(scene, palette, world, launchPads, blocks)
+        WorldDefinition(scene, palette, world, server, launchPads, blocks)
     } else {
         worlds[id]
     }
@@ -51,6 +53,7 @@ object GameCatalog {
     val available = listOf(
         GameCatalogEntry("first-game", "First Game", "Build together in the clearing"),
         GameCatalogEntry("second-game", "Second Game", "Drop signals in the relay yard"),
+        GameCatalogEntry("third-game", "Third Game", "Probe every world capability"),
     )
 }
 
@@ -79,6 +82,7 @@ data class WorldDefinition(
     val scene: SceneDefinition? = null,
     val palette: Map<String, String> = emptyMap(),
     val world: WorldSettings = WorldSettings(),
+    val server: JSONObject? = null,
     val launchPads: List<LaunchPadDefinition> = emptyList(),
     val blocks: List<BlockDefinition> = emptyList(),
 )

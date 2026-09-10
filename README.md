@@ -27,8 +27,8 @@ Android Studio must have an NDK installed. The build script discovers it from
 `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_SDK_ROOT`, `ANDROID_HOME`, or
 the SDK path in `local.properties`.
 
-Gradle builds the sibling game source with the shared `../tools` CLI and
-includes the generated `game-package/` directory in the APK. Debug builds
+Gradle builds all three sibling game sources with the shared `../tools` CLI and
+includes each generated package directory in the APK. Debug builds
 always start from that bundle. Release builds use a validated cached package
 only when its manifest has a semantic `version` strictly newer than the
 bundled manifest; an equal, older, or unversioned cache cannot mask a package

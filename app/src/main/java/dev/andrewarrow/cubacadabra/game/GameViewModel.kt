@@ -179,6 +179,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (generation != gameLoadGeneration) return@launch
                 val created = createEngine(loaded)
                 gameAudio.configure(loaded.audioAssets)
+                socket.setWorldConfigs(loaded.packageData.runtimeWorldIds().associateWith { id ->
+                    loaded.packageData.worldDefinition(id)?.server
+                }.filterValues { it != null }.mapValues { it.value!! })
                 engine = created
                 uiViewport?.let { viewport ->
                     NativeEngine.nativeSetUiViewport(
@@ -658,6 +661,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 engine = nextEngine
                 socket.disconnect()
                 socket.setGameID(game.id)
+                socket.setWorldConfigs(loaded.packageData.runtimeWorldIds().associateWith { id ->
+                    loaded.packageData.worldDefinition(id)?.server
+                }.filterValues { it != null }.mapValues { it.value!! })
                 clientTransportConnected = false
                 remotes.clear()
                 remotePlayerNames.clear()

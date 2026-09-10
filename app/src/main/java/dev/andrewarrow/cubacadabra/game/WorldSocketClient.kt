@@ -1,6 +1,7 @@
 package dev.andrewarrow.cubacadabra.game
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +42,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private var socket: WebSocket? = null
     private var worldId: String? = null
     private var gameId = "first-game"
+    private var worldConfigs: Map<String, JSONObject> = emptyMap()
     private var stopped = true
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
@@ -82,6 +84,10 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         if (normalized.isNotEmpty()) gameId = normalized
     }
 
+    fun setWorldConfigs(nextWorldConfigs: Map<String, JSONObject>) {
+        worldConfigs = nextWorldConfigs
+    }
+
     fun sendMove(position: Vec3, yaw: Float, moving: Boolean, sprinting: Boolean, respawnEventId: Int) {
         val current = socket ?: return
         val move = SentMove(position, yaw, moving, sprinting, respawnEventId)
@@ -104,7 +110,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
         val id = worldId ?: return
         if (stopped) return
         notifyState(if (reconnectAttempt == 0) WorldConnectionState.CONNECTING else WorldConnectionState.RECONNECTING)
-        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?client=android&game=$gameId"
+        val encodedConfig = worldConfigs[id]?.toString()?.toByteArray(StandardCharsets.UTF_8)?.let {
+            Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        }
+        val configQuery = encodedConfig?.let { "&world_config=$it" }.orEmpty()
+        val url = ClientConfiguration.backendUrl.trimEnd('/') + "/world/$id?client=android&game=$gameId$configQuery"
         val request = Request.Builder().url(url).apply {
             accessToken?.let { header("Authorization", "Bearer $it") }
         }.build()

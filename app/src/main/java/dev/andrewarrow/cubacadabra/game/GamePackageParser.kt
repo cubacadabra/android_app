@@ -16,6 +16,7 @@ internal fun parsePackage(json: JSONObject): GamePackage {
         scene = parseScene(json.getJSONObject("scene")),
         palette = jsonObjectMap(json.optJSONObject("palette")),
         world = parseWorldSettings(json.optJSONObject("world")),
+        server = json.optJSONObject("server"),
         launchPads = parsePads(json.optJSONArray("launchPads")),
         blocks = parseBlocks(json.optJSONArray("blocks")),
         worlds = worlds,
@@ -57,6 +58,7 @@ private fun parseWorld(json: JSONObject): WorldDefinition = WorldDefinition(
     scene = json.optJSONObject("scene")?.let(::parseScene),
     palette = jsonObjectMap(json.optJSONObject("palette")),
     world = parseWorldSettings(json.optJSONObject("world")),
+    server = json.optJSONObject("server"),
     launchPads = parsePads(json.optJSONArray("launchPads")),
     blocks = parseBlocks(json.optJSONArray("blocks")),
 )

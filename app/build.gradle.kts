@@ -15,6 +15,7 @@ val rustBuildScript = rootProject.file("scripts/build_rust_android.sh")
 val toolsRoot = rootProject.file("../tools")
 val defaultGameRoot = rootProject.file("../first-game")
 val secondGameRoot = rootProject.file("../second-game")
+val thirdGameRoot = rootProject.file("../third-game")
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { stream -> load(stream) }
 }
@@ -49,6 +50,7 @@ val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") 
     inputs.files(
         fileTree(defaultGameRoot) { exclude("build/**") },
         fileTree(secondGameRoot) { exclude("build/**") },
+        fileTree(thirdGameRoot) { exclude("build/**") },
         fileTree(toolsRoot) { exclude(".venv/**", "__pycache__/**") },
     )
     environment("PYTHONPATH", toolsRoot.resolve("src").absolutePath)
@@ -62,6 +64,13 @@ val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") 
             commandLine(
                 "python3", "-m", "cubacadabra", "build-game", secondGameRoot.absolutePath,
                 "--output", outputDirectory.get().asFile.resolve("game-package-second-game").absolutePath,
+            )
+        }
+        execOperations.exec {
+            environment("PYTHONPATH", toolsRoot.resolve("src").absolutePath)
+            commandLine(
+                "python3", "-m", "cubacadabra", "build-game", thirdGameRoot.absolutePath,
+                "--output", outputDirectory.get().asFile.resolve("game-package-third-game").absolutePath,
             )
         }
     }
