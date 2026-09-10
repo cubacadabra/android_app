@@ -275,7 +275,7 @@ private fun MoreCubesScreen(
             && packageUrl.protocol == "https"
             && packageUrl.host.equals(ClientConfiguration.publicAssetHost, ignoreCase = true)
         if (packageUrl == null || !entry.packagePath.startsWith("/cubes/")
-            || !packagePath.endsWith("/") || !packageUrl.path.startsWith("/cubes/")
+            || !packageUrl.path.startsWith("/cubes/")
             || !(isBackendPackage || isPublicAsset)) {
             null
         } else {
