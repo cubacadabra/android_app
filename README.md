@@ -66,3 +66,10 @@ raw-handle path requires the native window to remain valid through surface
 destruction, and Android's ABI-specific native-library packaging guidance
 ([Android NDK ABIs](https://developer.android.com/ndk/guides/abis), [prebuilt
 libraries](https://developer.android.com/ndk/guides/prebuilts)).
+
+### Licensing
+
+Copyright (C) 2026 Andrew Arrow
+
+Licensed under the GNU General Public License v3.0 or later.
+See [LICENSE](LICENSE).
