@@ -64,6 +64,7 @@ extern uint8_t engine_renderer_set_package_image_atlas(
 extern uint8_t engine_renderer_register_morph_pack(
     CubacadabraRenderer *, const uint8_t *, uintptr_t
 );
+extern uint8_t engine_renderer_set_avatar_preview_mode(CubacadabraRenderer *, uint8_t);
 extern void engine_renderer_sync(CubacadabraRenderer *, const CubacadabraEngine *);
 extern void engine_renderer_draw(CubacadabraRenderer *);
 extern void engine_renderer_destroy(CubacadabraRenderer *);
@@ -344,6 +345,12 @@ static jboolean JNICALL nativeRegisterMorphPack(JNIEnv *env, jclass klass, jlong
     return accepted ? JNI_TRUE : JNI_FALSE;
 }
 
+static void JNICALL nativeSetAvatarPreviewMode(JNIEnv *env, jclass klass, jlong value, jboolean enabled) {
+    (void)env; (void)klass;
+    AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
+    if (holder) engine_renderer_set_avatar_preview_mode(holder->renderer, enabled ? 1 : 0);
+}
+
 static void JNICALL nativeDrawRenderer(JNIEnv *env, jclass klass, jlong value, jlong engineValue) {
     (void)env; (void)klass;
     AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
@@ -444,6 +451,7 @@ static JNINativeMethod methods[] = {
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeSetPackageImageAtlas", "(JII[B[B)Z", (void *)nativeSetPackageImageAtlas},
     {"nativeRegisterMorphPack", "(J[B)Z", (void *)nativeRegisterMorphPack},
+    {"nativeSetAvatarPreviewMode", "(JZ)V", (void *)nativeSetAvatarPreviewMode},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},
     {"nativeSnapshotLength", "()I", (void *)nativeSnapshotLength},

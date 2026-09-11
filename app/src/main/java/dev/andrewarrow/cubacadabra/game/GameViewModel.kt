@@ -508,6 +508,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun resizeRenderer(width: Float, height: Float) { if (renderer != 0L) NativeEngine.nativeResizeRenderer(renderer, width, height) }
+    fun setAvatarPreviewMode(enabled: Boolean) {
+        if (renderer != 0L) NativeEngine.nativeSetAvatarPreviewMode(renderer, enabled)
+    }
     fun draw() { if (renderer != 0L && engine != 0L) NativeEngine.nativeDrawRenderer(renderer, engine) }
     fun destroyRenderer() {
         if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)

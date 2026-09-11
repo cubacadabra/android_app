@@ -60,6 +60,7 @@ internal object NativeEngine {
         regions: ByteArray,
     ): Boolean
     external fun nativeRegisterMorphPack(renderer: Long, pack: ByteArray): Boolean
+    external fun nativeSetAvatarPreviewMode(renderer: Long, enabled: Boolean)
     external fun nativeDrawRenderer(renderer: Long, engine: Long)
     external fun nativeDestroyRenderer(renderer: Long)
     external fun nativeSnapshotLength(): Int
