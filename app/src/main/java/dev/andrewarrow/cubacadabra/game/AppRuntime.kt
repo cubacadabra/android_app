@@ -27,7 +27,7 @@ data class AppCatalogSnapshot(
     val isLoading: Boolean = false,
     val feedback: AppCatalogFeedback? = null,
 )
-data class AppMorphAsset(val id: String, val kind: String, val displayName: String, val thumbnail: String?)
+data class AppMorphAsset(val id: String, val kind: String, val displayName: String, val thumbnail: String?, val artifactURL: String?)
 data class AppMorphPreset(val id: String, val displayName: String, val base: String, val parts: List<String>, val face: String?, val thumbnail: String?)
 data class AppAppearanceSnapshot(
     val release: String? = null,
@@ -123,7 +123,7 @@ class AppRuntime : AutoCloseable {
         }
         val morphAssetsJSON = appearanceJSON.getJSONArray("assets")
         val morphAssets = List(morphAssetsJSON.length()) { index -> morphAssetsJSON.getJSONObject(index).let { asset ->
-            AppMorphAsset(asset.getString("id"), asset.getString("kind"), asset.getString("display_name"), asset.nullableString("thumbnail"))
+            AppMorphAsset(asset.getString("id"), asset.getString("kind"), asset.getString("display_name"), asset.nullableString("thumbnail"), asset.nullableString("artifact_url"))
         } }
         val morphPresetsJSON = appearanceJSON.getJSONArray("presets")
         val morphPresets = List(morphPresetsJSON.length()) { index -> morphPresetsJSON.getJSONObject(index).let { preset ->

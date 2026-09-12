@@ -16,8 +16,32 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
+
+private const val MORPH_PREVIEW_MANIFEST = """
+    {
+      "id": "android-morph-preview",
+      "version": "0.0.0",
+      "sdkVersion": "0.3.0",
+      "package": {"formatVersion": 3, "entry": "game.luau"},
+      "displayName": "Morph Preview",
+      "lobby": false,
+      "startWorld": "lobby",
+      "launch": {"destinationWorld": "lobby", "authoritative": false},
+      "world": {
+        "groundSize": 12,
+        "gridSize": 0,
+        "gridDivisions": 0,
+        "spawn": [0, 0, 0],
+        "showSpawnPad": false
+      }
+    }
+""".trimIndent()
+
+private const val MORPH_PREVIEW_SCRIPT = "return {}"
 
 private data class EngineUiEvent(
     val nodeId: String,
@@ -57,15 +81,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
     val hasEngine: Boolean get() = engine != 0L
+    val hasMorphPreviewEngine: Boolean get() = morphPreviewEngine != 0L
+    private val _morphPreviewReady = MutableStateFlow(false)
+    val morphPreviewReady: StateFlow<Boolean> = _morphPreviewReady.asStateFlow()
 
     private val loader = GamePackageLoader(application)
     private val gameAudio = GameAudio(application)
     private val socket = WorldSocketClient(application, viewModelScope)
     private var engine: Long = 0
+    private var morphPreviewEngine: Long = 0
     private var gameLoadGeneration = 0L
     private var renderer: Long = 0
+    private var morphPreviewRenderer: Long = 0
     private var packageImageAtlas: GameImageAtlas? = null
     private var packageMorphPacks: List<ByteArray> = emptyList()
+    private val morphPreviewPacks = linkedMapOf<String, ByteArray>()
+    private val morphPreviewRegisteredPackURLs = mutableSetOf<String>()
+    private var morphPreviewGeneration = 0L
     private var lobbyEnabled = true
     private var lastFrameNanos: Long? = null
     private var forward = 0f
@@ -314,8 +346,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun tickMorphPreview(frameTimeNanos: Long) {
-        val currentEngine = engine
-        if (currentEngine == 0L || _state.value.isLoading) return
+        val currentEngine = morphPreviewEngine
+        if (currentEngine == 0L) return
         val previous = previewLastFrameNanos
         previewLastFrameNanos = frameTimeNanos
         if (previous == null) return
@@ -334,7 +366,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         )
         previewJumpQueued = false
         NativeEngine.nativeStep(currentEngine, delta)
-        update { copy(frame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()) }
+        NativeEngine.nativeReadFrame(currentEngine)
     }
 
     fun playMorphPreview(action: String) {
@@ -344,9 +376,69 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         previewActionUntilNanos = System.nanoTime() + 750_000_000L
     }
 
-    fun setMorphPreviewAppearance(source: String?) {
-        if (source != null && engine != 0L) {
-            NativeEngine.nativeSetLocalAppearance(engine, source.toByteArray(StandardCharsets.UTF_8))
+    fun setMorphPreviewAppearance(source: String?, packURLs: List<URL> = emptyList()) {
+        if (source == null) return
+        val generation = ++morphPreviewGeneration
+        viewModelScope.launch {
+            runCatching {
+                val downloaded = withContext(Dispatchers.IO) {
+                    packURLs.distinctBy { it.toString() }.associate { url ->
+                        url.toString() to fetchMorphPack(url)
+                    }
+                }
+                if (generation != morphPreviewGeneration) return@launch
+                downloaded.forEach { (url, pack) ->
+                    if (!morphPreviewPacks.containsKey(url)) morphPreviewPacks[url] = pack
+                }
+                if (morphPreviewEngine == 0L) {
+                    morphPreviewEngine = NativeEngine.nativeCreate(
+                        MORPH_PREVIEW_MANIFEST.toByteArray(StandardCharsets.UTF_8),
+                        MORPH_PREVIEW_SCRIPT.toByteArray(StandardCharsets.UTF_8),
+                    )
+                    check(morphPreviewEngine != 0L) { "The Android morph preview engine could not be created." }
+                    NativeEngine.nativeSetAuthenticated(morphPreviewEngine, true)
+                }
+                registerMorphPreviewPacks()
+                val appearance = JSONObject(source)
+                appearance.put("revision", NativeEngine.nativeAppearanceRevision(morphPreviewEngine).toLong() + 1L)
+                check(NativeEngine.nativeSetLocalAppearance(morphPreviewEngine, appearance.toString().toByteArray(StandardCharsets.UTF_8))) {
+                    "The Android morph preview appearance was rejected."
+                }
+                _morphPreviewReady.value = true
+            }.onFailure { error ->
+                if (generation == morphPreviewGeneration) Log.w(TAG, "Morph preview update failed", error)
+            }
+        }
+    }
+
+    private fun fetchMorphPack(url: URL): ByteArray {
+        val connection = (url.openConnection() as? HttpURLConnection)
+            ?: throw IllegalArgumentException("The morph pack URL must use HTTP or HTTPS.")
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 20_000
+        connection.requestMethod = "GET"
+        connection.connect()
+        try {
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("The morph pack server returned HTTP ${connection.responseCode}.")
+            }
+            val bytes = connection.inputStream.use { it.readBytes() }
+            check(bytes.isNotEmpty() && bytes.size <= 64 * 1024 * 1024) { "The morph pack is invalid or too large." }
+            return bytes
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun registerMorphPreviewPacks() {
+        val currentRenderer = morphPreviewRenderer
+        if (currentRenderer == 0L) return
+        morphPreviewPacks.forEach { (url, pack) ->
+            if (url in morphPreviewRegisteredPackURLs) return@forEach
+            check(NativeEngine.nativeRegisterMorphPack(currentRenderer, pack)) {
+                "The Android morph preview pack could not be registered."
+            }
+            morphPreviewRegisteredPackURLs += url
         }
     }
 
@@ -414,12 +506,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         safeRight: Float,
         safeBottom: Float,
         safeLeft: Float,
+        avatarPreviewMode: Boolean = false,
     ) {
         val viewport = UiViewport(width, height, scale, safeTop, safeRight, safeBottom, safeLeft)
         uiViewport = viewport
-        if (engine != 0L) {
+        val targetEngine = if (avatarPreviewMode) morphPreviewEngine else engine
+        if (targetEngine != 0L) {
             NativeEngine.nativeSetUiViewport(
-                engine,
+                targetEngine,
                 viewport.width,
                 viewport.height,
                 viewport.scale,
@@ -529,15 +623,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         socket.setUsername(normalized)
     }
 
-    fun createRenderer(surface: android.view.Surface, width: Float, height: Float) {
-        if (engine == 0L || renderer != 0L) return
+    fun createRenderer(surface: android.view.Surface, width: Float, height: Float, avatarPreviewMode: Boolean = false) {
+        val targetEngine = if (avatarPreviewMode) morphPreviewEngine else engine
+        if (targetEngine == 0L) return
+        if (avatarPreviewMode && morphPreviewRenderer != 0L) return
+        if (!avatarPreviewMode && renderer != 0L) return
         Log.d(TAG, "creating renderer surfaceValid=${surface.isValid} size=${width}x${height}")
-        renderer = NativeEngine.nativeCreateRenderer(engine, surface, width, height)
-        Log.d(TAG, "renderer created handle=$renderer")
-        if (renderer != 0L) {
-            packageImageAtlas?.let { atlas ->
+        val createdRenderer = NativeEngine.nativeCreateRenderer(targetEngine, surface, width, height)
+        if (avatarPreviewMode) morphPreviewRenderer = createdRenderer else renderer = createdRenderer
+        Log.d(TAG, "renderer created handle=$createdRenderer preview=$avatarPreviewMode")
+        if (createdRenderer != 0L) {
+            if (avatarPreviewMode) {
+                NativeEngine.nativeSetAvatarPreviewMode(createdRenderer, true)
+                morphPreviewRegisteredPackURLs.clear()
+                registerMorphPreviewPacks()
+            }
+            if (!avatarPreviewMode) packageImageAtlas?.let { atlas ->
                 val uploaded = NativeEngine.nativeSetPackageImageAtlas(
-                    renderer,
+                    createdRenderer,
                     atlas.width,
                     atlas.height,
                     atlas.pixels,
@@ -545,24 +648,38 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (!uploaded) Log.e(TAG, "package image atlas upload failed")
             }
-            packageMorphPacks.forEach { pack ->
-                if (!NativeEngine.nativeRegisterMorphPack(renderer, pack)) {
+            if (!avatarPreviewMode) packageMorphPacks.forEach { pack ->
+                if (!NativeEngine.nativeRegisterMorphPack(createdRenderer, pack)) {
                     Log.e(TAG, "morph pack upload failed")
                 }
             }
         }
-        if (renderer == 0L && width > 0f && height > 0f) {
+        if (createdRenderer == 0L && width > 0f && height > 0f) {
             update { copy(errorMessage = "The Android graphics renderer could not initialize.") }
         }
     }
-    fun resizeRenderer(width: Float, height: Float) { if (renderer != 0L) NativeEngine.nativeResizeRenderer(renderer, width, height) }
-    fun setAvatarPreviewMode(enabled: Boolean) {
-        if (renderer != 0L) NativeEngine.nativeSetAvatarPreviewMode(renderer, enabled)
+    fun resizeRenderer(width: Float, height: Float, avatarPreviewMode: Boolean = false) {
+        val targetRenderer = if (avatarPreviewMode) morphPreviewRenderer else renderer
+        if (targetRenderer != 0L) NativeEngine.nativeResizeRenderer(targetRenderer, width, height)
     }
-    fun draw() { if (renderer != 0L && engine != 0L) NativeEngine.nativeDrawRenderer(renderer, engine) }
-    fun destroyRenderer() {
-        if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
-        renderer = 0
+    fun setAvatarPreviewMode(enabled: Boolean, avatarPreviewMode: Boolean = false) {
+        val targetRenderer = if (avatarPreviewMode) morphPreviewRenderer else renderer
+        if (targetRenderer != 0L) NativeEngine.nativeSetAvatarPreviewMode(targetRenderer, enabled)
+    }
+    fun draw(avatarPreviewMode: Boolean = false) {
+        val targetRenderer = if (avatarPreviewMode) morphPreviewRenderer else renderer
+        val targetEngine = if (avatarPreviewMode) morphPreviewEngine else engine
+        if (targetRenderer != 0L && targetEngine != 0L) NativeEngine.nativeDrawRenderer(targetRenderer, targetEngine)
+    }
+    fun destroyRenderer(avatarPreviewMode: Boolean = false) {
+        if (avatarPreviewMode) {
+            if (morphPreviewRenderer != 0L) NativeEngine.nativeDestroyRenderer(morphPreviewRenderer)
+            morphPreviewRenderer = 0
+            morphPreviewRegisteredPackURLs.clear()
+        } else {
+            if (renderer != 0L) NativeEngine.nativeDestroyRenderer(renderer)
+            renderer = 0
+        }
     }
 
     fun world(): WorldDefinition? = _state.value.packageData?.worldDefinition(_state.value.worldId)

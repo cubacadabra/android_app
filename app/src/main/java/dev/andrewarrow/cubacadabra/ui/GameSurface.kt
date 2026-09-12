@@ -49,25 +49,25 @@ private class InteractiveGameSurface(
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
+        model.createRenderer(holder.surface, width.toFloat(), height.toFloat(), previewMode)
         setAvatarPreviewMode(previewMode)
         updateUiViewport()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         if (width > 0 && height > 0) {
-            model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
-            model.resizeRenderer(width.toFloat(), height.toFloat())
+            model.createRenderer(holder.surface, width.toFloat(), height.toFloat(), previewMode)
+            model.resizeRenderer(width.toFloat(), height.toFloat(), previewMode)
             updateUiViewport()
         }
     }
 
     fun setAvatarPreviewMode(enabled: Boolean) {
         previewMode = enabled
-        model.setAvatarPreviewMode(enabled)
+        model.setAvatarPreviewMode(enabled, previewMode)
     }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer()
+    override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer(previewMode)
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
@@ -173,6 +173,7 @@ private class InteractiveGameSurface(
             safeRight = safeInsets.right / density,
             safeBottom = safeInsets.bottom / density,
             safeLeft = safeInsets.left / density,
+            avatarPreviewMode = previewMode,
         )
     }
 }

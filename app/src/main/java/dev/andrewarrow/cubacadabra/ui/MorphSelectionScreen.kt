@@ -32,28 +32,38 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.andrewarrow.cubacadabra.app.AppUiState
 import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.AppMorphAsset
+import dev.andrewarrow.cubacadabra.game.ClientConfiguration
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 import kotlinx.coroutines.isActive
+import java.net.URL
 
 @Composable
 internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameModel: GameViewModel) {
     var tab by remember { mutableStateOf(0) }
     LaunchedEffect(gameModel) {
         model.beginMorphEdit()
-        gameModel.load()
         var previous = 0L
         while (isActive) {
             withFrameNanos { now ->
                 if (previous != 0L) gameModel.tickMorphPreview(now)
                 previous = now
-                gameModel.draw()
+                gameModel.draw(avatarPreviewMode = true)
             }
         }
     }
     val appearance = state.appearance
-    val gameState by gameModel.state.collectAsStateWithLifecycle()
-    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, gameState.isLoading) {
-        gameModel.setMorphPreviewAppearance(model.draftAppearanceJSON())
+    val previewReady by gameModel.morphPreviewReady.collectAsStateWithLifecycle()
+    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, appearance.assets) {
+        val ids = mutableSetOf<String>().apply {
+            appearance.draftBase?.let { add(it) }
+            appearance.draftParts.forEach { add(it) }
+            appearance.draftFace?.let { add(it) }
+        }
+        val baseURL = URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/")
+        val packURLs = appearance.assets
+            .filter { it.id in ids }
+            .mapNotNull { asset -> asset.artifactURL?.let { path -> runCatching { URL(baseURL, path) }.getOrNull() } }
+        gameModel.setMorphPreviewAppearance(model.draftAppearanceJSON(), packURLs)
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -77,7 +87,7 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameMo
                 }
             }
             Text("PREVIEW", style = MaterialTheme.typography.labelLarge)
-            if (gameState.isLoading || !gameModel.hasEngine) {
+            if (!previewReady) {
                 CircularProgressIndicator(modifier = Modifier.padding(vertical = 80.dp))
             } else {
                 RustGameSurface(gameModel, avatarPreviewMode = true)
