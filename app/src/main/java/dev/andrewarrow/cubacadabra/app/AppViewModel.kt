@@ -164,12 +164,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             accessToken = accessToken,
             username = user?.username,
             bodyID = user?.bodyID,
-            appearanceJSON = appSnapshot.appearance.selectedRenderJSON,
+            appearanceJSON = appSnapshot.appearance.selectedLoadoutJSON,
             blockedUserIDs = appSnapshot.safety.blockedUserIDs.toSet(),
         )
     }
 
-    fun draftAppearanceJSON(): String? = appSnapshot.appearance.draftRenderJSON
+    fun draftMorphLoadoutJSON(): String? = appSnapshot.appearance.draftLoadoutJSON
 
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
     fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))

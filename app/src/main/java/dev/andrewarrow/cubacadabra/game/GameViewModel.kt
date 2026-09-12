@@ -412,7 +412,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (delta.isFinite()) previewZoomDelta -= delta * 20f
     }
 
-    fun setMorphPreviewAppearance(source: String?, packURLs: List<URL> = emptyList()) {
+    fun setMorphPreviewLoadout(source: String?, packURLs: List<URL> = emptyList()) {
         if (source == null) return
         val generation = ++morphPreviewGeneration
         viewModelScope.launch {
@@ -435,10 +435,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     NativeEngine.nativeSetAuthenticated(morphPreviewEngine, true)
                 }
                 registerMorphPreviewPacks()
-                val appearance = JSONObject(source)
-                appearance.put("revision", NativeEngine.nativeAppearanceRevision(morphPreviewEngine).toLong() + 1L)
-                check(NativeEngine.nativeSetLocalAppearance(morphPreviewEngine, appearance.toString().toByteArray(StandardCharsets.UTF_8))) {
-                    "The Android morph preview appearance was rejected."
+                val loadout = JSONObject(source)
+                loadout.put("revision", NativeEngine.nativeAppearanceRevision(morphPreviewEngine).toLong() + 1L)
+                check(NativeEngine.nativeSetLocalMorphLoadout(morphPreviewEngine, loadout.toString().toByteArray(StandardCharsets.UTF_8))) {
+                    "The Android morph preview loadout was rejected."
                 }
                 _morphPreviewReady.value = true
             }.onFailure { error ->

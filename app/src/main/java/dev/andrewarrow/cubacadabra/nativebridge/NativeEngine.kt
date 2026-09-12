@@ -67,6 +67,7 @@ internal object NativeEngine {
     external fun nativeSettingsRoomState(engine: Long): Int
     external fun nativeSetUsername(engine: Long, username: ByteArray): Boolean
     external fun nativeSetLocalAppearance(engine: Long, appearance: ByteArray): Boolean
+    external fun nativeSetLocalMorphLoadout(engine: Long, loadout: ByteArray): Boolean
     external fun nativeAppearanceRevision(engine: Long): Int
     external fun nativeStartWorld(engine: Long, world: Int): Boolean
     external fun nativePlayerRespawnEventId(engine: Long): Int

@@ -116,17 +116,23 @@ internal fun MorphSelectionScreen(
         }
     }
 
-    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, appearance.draftRenderJSON, appearance.assets) {
+    LaunchedEffect(appearance.draftLoadoutJSON, appearance.assets) {
         val ids = buildSet {
             appearance.draftBase?.let(::add)
             addAll(appearance.draftParts)
             appearance.draftFace?.let(::add)
         }
         val baseUrl = URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/")
-        val packUrls = appearance.assets
-            .filter { it.id in ids }
-            .mapNotNull { asset -> asset.artifactURL?.let { path -> runCatching { URL(baseUrl, path) }.getOrNull() } }
-        gameModel.setMorphPreviewAppearance(model.draftAppearanceJSON(), packUrls)
+        val packUrls = ids.mapNotNull { id ->
+            val asset = appearance.assets.firstOrNull { it.id == id }
+                ?: error("Morph preview catalog is missing asset $id")
+            if (asset.kind == "face") return@mapNotNull null
+            val path = asset.artifactURL
+                ?: error("Morph asset $id has no schema-5 artifact")
+            runCatching { URL(baseUrl, path) }
+                .getOrElse { error("Morph asset $id has an invalid schema-5 artifact URL") }
+        }
+        gameModel.setMorphPreviewLoadout(model.draftMorphLoadoutJSON(), packUrls)
     }
 
     Surface(

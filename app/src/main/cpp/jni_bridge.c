@@ -54,6 +54,7 @@ extern float engine_camera_pitch(const CubacadabraEngine *engine);
 extern float engine_camera_distance(const CubacadabraEngine *engine);
 extern uint32_t engine_player_respawn_event_id(const CubacadabraEngine *engine);
 extern uint8_t engine_set_local_appearance_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
+extern uint8_t engine_set_local_morph_loadout_json(CubacadabraEngine *, const uint8_t *, uintptr_t);
 extern uint32_t engine_appearance_revision(const CubacadabraEngine *);
 extern CubacadabraRenderer *engine_renderer_create(void *, float, float);
 extern void engine_renderer_resize(CubacadabraRenderer *, float, float);
@@ -402,6 +403,20 @@ static jboolean JNICALL nativeSetLocalAppearance(JNIEnv *env, jclass klass, jlon
     return applied ? JNI_TRUE : JNI_FALSE;
 }
 
+static jboolean JNICALL nativeSetLocalMorphLoadout(JNIEnv *env, jclass klass, jlong value, jbyteArray bytes) {
+    (void)klass;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    jbyte *source = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (!source && length > 0) return JNI_FALSE;
+    uint8_t applied = engine_set_local_morph_loadout_json(
+        engine(value),
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    if (source) (*env)->ReleaseByteArrayElements(env, bytes, source, JNI_ABORT);
+    return applied ? JNI_TRUE : JNI_FALSE;
+}
+
 static jint JNICALL nativeAppearanceRevision(JNIEnv *env, jclass klass, jlong value) {
     (void)env; (void)klass;
     return (jint)engine_appearance_revision(engine(value));
@@ -458,6 +473,7 @@ static JNINativeMethod methods[] = {
     {"nativeSettingsRoomState", "(J)I", (void *)nativeSettingsRoomState},
     {"nativeSetUsername", "(J[B)Z", (void *)nativeSetUsername},
     {"nativeSetLocalAppearance", "(J[B)Z", (void *)nativeSetLocalAppearance},
+    {"nativeSetLocalMorphLoadout", "(J[B)Z", (void *)nativeSetLocalMorphLoadout},
     {"nativeAppearanceRevision", "(J)I", (void *)nativeAppearanceRevision},
     {"nativeStartWorld", "(JI)Z", (void *)nativeStartWorld},
     {"nativePlayerRespawnEventId", "(J)I", (void *)nativePlayerRespawnEventId},
