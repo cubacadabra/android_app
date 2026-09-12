@@ -53,7 +53,7 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameMo
     }
     val appearance = state.appearance
     val previewReady by gameModel.morphPreviewReady.collectAsStateWithLifecycle()
-    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, appearance.assets) {
+    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, appearance.draftRenderJSON, appearance.assets) {
         val ids = mutableSetOf<String>().apply {
             appearance.draftBase?.let { add(it) }
             appearance.draftParts.forEach { add(it) }
@@ -77,7 +77,7 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameMo
             else if (tab == 0) {
                 appearance.presets.forEach { preset ->
                     OutlinedButton(onClick = { model.chooseMorphPreset(preset.id) }, modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp)) {
-                        val selected = preset.base == appearance.draftBase && preset.parts.size == appearance.draftParts.size && preset.parts.all { appearance.draftParts.contains(it) } && preset.face == appearance.draftFace
+                        val selected = preset.id == appearance.draftPresetID
                         Column(Modifier.fillMaxWidth()) { Text(preset.displayName); Text(if (selected) "Selected" else "Ready to play", style = MaterialTheme.typography.labelSmall) }
                     }
                 }
@@ -94,7 +94,7 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameMo
                     .fillMaxWidth()
                     .heightIn(min = 260.dp)
             }
-            Text(appearance.presets.firstOrNull { preset -> preset.base == appearance.draftBase && preset.parts.size == appearance.draftParts.size && preset.parts.all { appearance.draftParts.contains(it) } && preset.face == appearance.draftFace }?.displayName ?: "Custom morph", style = MaterialTheme.typography.labelSmall)
+            Text(appearance.presets.firstOrNull { it.id == appearance.draftPresetID }?.displayName ?: "Custom morph", style = MaterialTheme.typography.labelSmall)
             Text("Your morph is ready to try.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("walk", "jump", "turn").forEach { action -> OutlinedButton(onClick = { gameModel.playMorphPreview(action) }) { Text(action.replaceFirstChar { it.uppercase() }) } }

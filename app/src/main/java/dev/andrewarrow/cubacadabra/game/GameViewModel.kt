@@ -373,7 +373,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         previewForward = if (action == "walk") 1f else 0f
         previewJumpQueued = action == "jump"
         previewLookX = if (action == "turn") 6f else 0f
-        previewActionUntilNanos = System.nanoTime() + 750_000_000L
+        previewActionUntilNanos = System.nanoTime() + 1_500_000_000L
     }
 
     fun setMorphPreviewAppearance(source: String?, packURLs: List<URL> = emptyList()) {

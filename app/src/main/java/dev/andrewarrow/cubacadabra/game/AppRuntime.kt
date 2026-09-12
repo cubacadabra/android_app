@@ -39,6 +39,9 @@ data class AppAppearanceSnapshot(
     val draftBase: String? = null,
     val draftParts: List<String> = emptyList(),
     val draftFace: String? = null,
+    val draftPresetID: String? = null,
+    val selectedRenderJSON: String? = null,
+    val draftRenderJSON: String? = null,
     val draftCanSave: Boolean = false,
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
@@ -158,6 +161,7 @@ class AppRuntime : AutoCloseable {
                 appearanceJSON.nullableString("release"), morphAssets, morphPresets,
                 appearanceJSON.nullableString("selected_base"), appearanceJSON.stringList("selected_parts"), appearanceJSON.nullableString("selected_face"),
                 appearanceJSON.nullableString("draft_base"), appearanceJSON.stringList("draft_parts"), appearanceJSON.nullableString("draft_face"),
+                appearanceJSON.nullableString("draft_preset_id"), appearanceJSON.nullableString("selected_render_json"), appearanceJSON.nullableString("draft_render_json"),
                 appearanceJSON.getBoolean("draft_can_save"), appearanceJSON.getBoolean("is_loading"), appearanceJSON.getBoolean("is_saving"), appearanceFeedback,
             ),
         )

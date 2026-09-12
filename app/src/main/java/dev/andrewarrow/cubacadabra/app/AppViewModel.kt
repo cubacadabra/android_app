@@ -164,22 +164,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             accessToken = accessToken,
             username = user?.username,
             bodyID = user?.bodyID,
-            appearanceJSON = appSnapshot.appearance.selectedBase?.let { base ->
-                JSONObject().put("version", 2).put("base", base)
-                    .put("parts", appSnapshot.appearance.selectedParts)
-                    .put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL)
-                    .put("parameters", JSONObject()).put("revision", 0).toString()
-            },
+            appearanceJSON = appSnapshot.appearance.selectedRenderJSON,
             blockedUserIDs = appSnapshot.safety.blockedUserIDs.toSet(),
         )
     }
 
-    fun draftAppearanceJSON(): String? = appSnapshot.appearance.draftBase?.let { base ->
-        JSONObject().put("version", 2).put("base", base)
-            .put("parts", appSnapshot.appearance.draftParts)
-            .put("face", appSnapshot.appearance.draftFace ?: JSONObject.NULL)
-            .put("parameters", JSONObject()).put("revision", 0).toString()
-    }
+    fun draftAppearanceJSON(): String? = appSnapshot.appearance.draftRenderJSON
 
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
     fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
