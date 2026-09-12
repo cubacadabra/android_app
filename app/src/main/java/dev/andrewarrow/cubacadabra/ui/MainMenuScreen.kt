@@ -91,7 +91,7 @@ internal fun MainMenuScreen(appModel: AppViewModel, model: GameViewModel) {
             MoreCubesScreen(appState, gameState, appModel, model::selectGame)
         }
         HomeDestination.Username -> ProfileUsernameScreen(appState, appModel)
-        HomeDestination.Morph -> MorphSelectionScreen(appState, appModel)
+        HomeDestination.Morph -> MorphSelectionScreen(appState, appModel, model)
         HomeDestination.Safety -> {
             val gameState by model.state.collectAsStateWithLifecycle()
             SafetyCenterScreen(appState, gameState, appModel)

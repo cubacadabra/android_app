@@ -56,6 +56,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var onSessionRejected: ((Long) -> Unit)? = null
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
+    val hasEngine: Boolean get() = engine != 0L
 
     private val loader = GamePackageLoader(application)
     private val gameAudio = GameAudio(application)
@@ -74,6 +75,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lookX = 0f
     private var lookY = 0f
     private var zoomDelta = 0f
+    private var previewLastFrameNanos: Long? = null
+    private var previewForward = 0f
+    private var previewJumpQueued = false
+    private var previewLookX = 0f
+    private var previewActionUntilNanos = 0L
     private var uiViewport: UiViewport? = null
     private var clientTransportConnected = false
     private val remotes = sortedMapOf<String, RemotePlayerState>()
@@ -304,6 +310,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 nextFrame.player.sprinting,
                 NativeEngine.nativePlayerRespawnEventId(currentEngine),
             )
+        }
+    }
+
+    fun tickMorphPreview(frameTimeNanos: Long) {
+        val currentEngine = engine
+        if (currentEngine == 0L || _state.value.isLoading) return
+        val previous = previewLastFrameNanos
+        previewLastFrameNanos = frameTimeNanos
+        if (previous == null) return
+        val delta = min((frameTimeNanos - previous) / 1_000_000_000f, 0.05f).coerceAtLeast(0f)
+        val active = frameTimeNanos < previewActionUntilNanos
+        NativeEngine.nativeSetInput(
+            currentEngine,
+            if (active) previewForward else 0f,
+            0f,
+            false,
+            active && previewJumpQueued,
+            false,
+            if (active) previewLookX else 0f,
+            0f,
+            0f,
+        )
+        previewJumpQueued = false
+        NativeEngine.nativeStep(currentEngine, delta)
+        update { copy(frame = NativeEngine.nativeReadFrame(currentEngine).decodeFrame()) }
+    }
+
+    fun playMorphPreview(action: String) {
+        previewForward = if (action == "walk") 1f else 0f
+        previewJumpQueued = action == "jump"
+        previewLookX = if (action == "turn") 6f else 0f
+        previewActionUntilNanos = System.nanoTime() + 750_000_000L
+    }
+
+    fun setMorphPreviewAppearance(source: String?) {
+        if (source != null && engine != 0L) {
+            NativeEngine.nativeSetLocalAppearance(engine, source.toByteArray(StandardCharsets.UTF_8))
         }
     }
 

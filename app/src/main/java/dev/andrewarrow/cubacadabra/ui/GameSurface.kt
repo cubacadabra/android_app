@@ -15,17 +15,20 @@ import androidx.core.view.WindowInsetsCompat
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 
 @Composable
-internal fun RustGameSurface(model: GameViewModel) {
+internal fun RustGameSurface(model: GameViewModel, avatarPreviewMode: Boolean = false) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = { context -> InteractiveGameSurface(context, model) },
+        factory = { context -> InteractiveGameSurface(context, model, avatarPreviewMode) },
+        update = { view -> view.setAvatarPreviewMode(avatarPreviewMode) },
     )
 }
 
 private class InteractiveGameSurface(
     context: Context,
     private val model: GameViewModel,
+    initialPreviewMode: Boolean,
 ) : SurfaceView(context), SurfaceHolder.Callback {
+    private var previewMode = initialPreviewMode
     private val density = resources.displayMetrics.density.coerceAtLeast(.1f)
     private var safeInsets = Insets.NONE
     private val uiPointers = mutableSetOf<Int>()
@@ -47,6 +50,7 @@ private class InteractiveGameSurface(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         model.createRenderer(holder.surface, width.toFloat(), height.toFloat())
+        setAvatarPreviewMode(previewMode)
         updateUiViewport()
     }
 
@@ -56,6 +60,11 @@ private class InteractiveGameSurface(
             model.resizeRenderer(width.toFloat(), height.toFloat())
             updateUiViewport()
         }
+    }
+
+    fun setAvatarPreviewMode(enabled: Boolean) {
+        previewMode = enabled
+        model.setAvatarPreviewMode(enabled)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer()

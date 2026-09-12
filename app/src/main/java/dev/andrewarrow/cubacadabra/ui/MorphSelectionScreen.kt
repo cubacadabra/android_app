@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -26,22 +25,36 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.graphicsLayer
-import dev.andrewarrow.cubacadabra.R
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.andrewarrow.cubacadabra.app.AppUiState
 import dev.andrewarrow.cubacadabra.app.AppViewModel
 import dev.andrewarrow.cubacadabra.game.AppMorphAsset
+import dev.andrewarrow.cubacadabra.game.GameViewModel
+import kotlinx.coroutines.isActive
 
 @Composable
-internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
+internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel, gameModel: GameViewModel) {
     var tab by remember { mutableStateOf(0) }
-    var previewAction by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { model.beginMorphEdit() }
+    LaunchedEffect(gameModel) {
+        model.beginMorphEdit()
+        gameModel.load()
+        var previous = 0L
+        while (isActive) {
+            withFrameNanos { now ->
+                if (previous != 0L) gameModel.tickMorphPreview(now)
+                previous = now
+                gameModel.draw()
+            }
+        }
+    }
     val appearance = state.appearance
+    val gameState by gameModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(appearance.draftBase, appearance.draftParts, appearance.draftFace, gameState.isLoading) {
+        gameModel.setMorphPreviewAppearance(model.draftAppearanceJSON())
+    }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("CHOOSE YOUR MORPH", style = MaterialTheme.typography.labelLarge)
@@ -54,7 +67,8 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
             else if (tab == 0) {
                 appearance.presets.forEach { preset ->
                     OutlinedButton(onClick = { model.chooseMorphPreset(preset.id) }, modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp)) {
-                        Column(Modifier.fillMaxWidth()) { Text(preset.displayName); Text(if (preset.base == appearance.draftBase) "Selected" else "Ready to play", style = MaterialTheme.typography.labelSmall) }
+                        val selected = preset.base == appearance.draftBase && preset.parts.size == appearance.draftParts.size && preset.parts.all { appearance.draftParts.contains(it) } && preset.face == appearance.draftFace
+                        Column(Modifier.fillMaxWidth()) { Text(preset.displayName); Text(if (selected) "Selected" else "Ready to play", style = MaterialTheme.typography.labelSmall) }
                     }
                 }
             } else {
@@ -63,15 +77,17 @@ internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
                 }
             }
             Text("PREVIEW", style = MaterialTheme.typography.labelLarge)
-            Image(painterResource(R.drawable.player_boy_001), contentDescription = "Morph preview", contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 190.dp).graphicsLayer {
-                    translationY = if (previewAction == "jump") -24f else 0f
-                    translationX = if (previewAction == "walk") 12f else 0f
-                    rotationY = if (previewAction == "turn") 180f else 0f
-                })
-            Text(if (previewAction == null) "Your morph is ready to try." else "Preview: ${previewAction!!.replaceFirstChar { it.uppercase() }}", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f))
+            if (gameState.isLoading || !gameModel.hasEngine) {
+                CircularProgressIndicator(modifier = Modifier.padding(vertical = 80.dp))
+            } else {
+                RustGameSurface(gameModel, avatarPreviewMode = true)
+                    .fillMaxWidth()
+                    .heightIn(min = 260.dp)
+            }
+            Text(appearance.presets.firstOrNull { preset -> preset.base == appearance.draftBase && preset.parts.size == appearance.draftParts.size && preset.parts.all { appearance.draftParts.contains(it) } && preset.face == appearance.draftFace }?.displayName ?: "Custom morph", style = MaterialTheme.typography.labelSmall)
+            Text("Your morph is ready to try.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("walk", "jump", "turn").forEach { action -> OutlinedButton(onClick = { previewAction = action }) { Text(action.replaceFirstChar { it.uppercase() }) } }
+                listOf("walk", "jump", "turn").forEach { action -> OutlinedButton(onClick = { gameModel.playMorphPreview(action) }) { Text(action.replaceFirstChar { it.uppercase() }) } }
             }
             appearance.feedback?.let { Text(it.message, color = if (it.kind == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
             Button(onClick = model::saveMorph, enabled = appearance.draftCanSave && !appearance.isSaving, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) { if (appearance.isSaving) CircularProgressIndicator() else Text("SAVE MORPH") }
