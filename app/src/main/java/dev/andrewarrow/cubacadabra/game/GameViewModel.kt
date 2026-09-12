@@ -21,7 +21,7 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
 
-private const val MORPH_PREVIEW_MANIFEST = """
+private val MORPH_PREVIEW_MANIFEST = """
     {
       "id": "android-morph-preview",
       "version": "0.0.0",
@@ -109,6 +109,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var zoomDelta = 0f
     private var previewLastFrameNanos: Long? = null
     private var previewForward = 0f
+    private var previewMoveForward = 0f
+    private var previewMoveStrafe = 0f
+    private var previewGestureLookX = 0f
+    private var previewGestureLookY = 0f
+    private var previewZoomDelta = 0f
+    private var previewInitialZoomPending = true
     private var previewJumpQueued = false
     private var previewLookX = 0f
     private var previewActionUntilNanos = 0L
@@ -353,18 +359,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (previous == null) return
         val delta = min((frameTimeNanos - previous) / 1_000_000_000f, 0.05f).coerceAtLeast(0f)
         val active = frameTimeNanos < previewActionUntilNanos
+        val initialZoom = if (previewInitialZoomPending) -6.5f else 0f
         NativeEngine.nativeSetInput(
             currentEngine,
-            if (active) previewForward else 0f,
-            0f,
+            ((if (active) previewForward else 0f) + previewMoveForward).coerceIn(-1f, 1f),
+            previewMoveStrafe,
             false,
             active && previewJumpQueued,
             false,
-            if (active) previewLookX else 0f,
-            0f,
-            0f,
+            (if (active) previewLookX else 0f) + previewGestureLookX,
+            previewGestureLookY,
+            previewZoomDelta + initialZoom,
         )
+        previewInitialZoomPending = false
         previewJumpQueued = false
+        previewGestureLookX = 0f
+        previewGestureLookY = 0f
+        previewZoomDelta = 0f
         NativeEngine.nativeStep(currentEngine, delta)
         NativeEngine.nativeReadFrame(currentEngine)
     }
@@ -374,6 +385,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         previewJumpQueued = action == "jump"
         previewLookX = if (action == "turn") 6f else 0f
         previewActionUntilNanos = System.nanoTime() + 1_500_000_000L
+    }
+
+    fun morphPreviewLookChanged(dx: Float, dy: Float) {
+        previewGestureLookX += dx
+        previewGestureLookY += dy
+    }
+
+    fun morphPreviewLookEnded() {
+        previewGestureLookX = 0f
+        previewGestureLookY = 0f
+    }
+
+    fun morphPreviewMoveChanged(dx: Float, dy: Float) {
+        val radius = 54f
+        previewMoveStrafe = (dx / radius).coerceIn(-1f, 1f)
+        previewMoveForward = (-dy / radius).coerceIn(-1f, 1f)
+    }
+
+    fun morphPreviewMoveEnded() {
+        previewMoveForward = 0f
+        previewMoveStrafe = 0f
+    }
+
+    fun morphPreviewZoomChangedBy(delta: Float) {
+        if (delta.isFinite()) previewZoomDelta -= delta * 20f
     }
 
     fun setMorphPreviewAppearance(source: String?, packURLs: List<URL> = emptyList()) {

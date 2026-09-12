@@ -15,9 +15,13 @@ import androidx.core.view.WindowInsetsCompat
 import dev.andrewarrow.cubacadabra.game.GameViewModel
 
 @Composable
-internal fun RustGameSurface(model: GameViewModel, avatarPreviewMode: Boolean = false) {
+internal fun RustGameSurface(
+    model: GameViewModel,
+    avatarPreviewMode: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
     AndroidView(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
         factory = { context -> InteractiveGameSurface(context, model, avatarPreviewMode) },
         update = { view -> view.setAvatarPreviewMode(avatarPreviewMode) },
     )
@@ -33,6 +37,7 @@ private class InteractiveGameSurface(
     private var safeInsets = Insets.NONE
     private val uiPointers = mutableSetOf<Int>()
     private val cameraTouches = linkedMapOf<Int, PointF>()
+    private val cameraTouchStarts = linkedMapOf<Int, PointF>()
     private var previousPinchDistance: Float? = null
     private var cameraTouchMoved = false
 
@@ -95,7 +100,7 @@ private class InteractiveGameSurface(
                 val ids = (uiPointers + cameraTouches.keys).toList()
                 ids.forEach { pointerId ->
                     val point = cameraTouches[pointerId]
-                    finishPointer(pointerId, (point?.x ?: 0f) * density, (point?.y ?: 0f) * density, 3, false)
+                    finishPointer(pointerId, (point?.x ?: 0f), (point?.y ?: 0f), 3, false)
                 }
                 updatePinchDistance()
             }
@@ -107,10 +112,16 @@ private class InteractiveGameSurface(
         val id = pointerId.toLong() + 1L
         val x = rawX / density
         val y = rawY / density
-        if (model.uiPointer(id, 0, x, y)) {
+        if (!previewMode && model.uiPointer(id, 0, x, y)) {
             uiPointers += pointerId
         } else {
             cameraTouches[pointerId] = PointF(x, y)
+            cameraTouchStarts[pointerId] = PointF(x, y)
+            if (previewMode && cameraTouches.size >= 2) {
+                model.morphPreviewMoveEnded()
+                model.morphPreviewLookEnded()
+                cameraTouchMoved = true
+            }
         }
         updatePinchDistance()
     }
@@ -123,8 +134,14 @@ private class InteractiveGameSurface(
             model.uiPointer(id, 1, x, y)
         } else if (cameraTouches[pointerId] != null) {
             val previous = cameraTouches[pointerId]!!
-            if (cameraTouches.size == 1) {
-                model.lookBy(x - previous.x, y - previous.y)
+            if (cameraTouches.size == 1 && previousPinchDistance == null) {
+                if (previewMode) {
+                    val start = cameraTouchStarts[pointerId] ?: previous
+                    if (start.x < width / density / 2f) model.morphPreviewMoveChanged(x - start.x, y - start.y)
+                    else model.morphPreviewLookChanged(x - previous.x, y - previous.y)
+                } else {
+                    model.lookBy(x - previous.x, y - previous.y)
+                }
                 cameraTouchMoved = true
             }
             cameraTouches[pointerId] = PointF(x, y)
@@ -140,10 +157,20 @@ private class InteractiveGameSurface(
             model.uiPointer(id, phase, x, y)
         } else {
             cameraTouches.remove(pointerId)
+            cameraTouchStarts.remove(pointerId)
         }
         if (cameraTouches.isEmpty()) {
-            if (allowWorldTap && wasCameraInteraction && !cameraTouchMoved) model.requestUsernameEdit()
+            if (previewMode) {
+                model.morphPreviewMoveEnded()
+                model.morphPreviewLookEnded()
+            } else if (allowWorldTap && wasCameraInteraction && !cameraTouchMoved) {
+                model.requestUsernameEdit()
+            }
             cameraTouchMoved = false
+        } else if (previewMode) {
+            cameraTouchStarts.keys.toList().forEach { remaining ->
+                cameraTouches[remaining]?.let { point -> cameraTouchStarts[remaining] = point }
+            }
         }
     }
 
@@ -157,8 +184,13 @@ private class InteractiveGameSurface(
         val dy = points[0].y - points[1].y
         val distance = kotlin.math.sqrt(dx * dx + dy * dy)
         previousPinchDistance?.let { previous ->
-            model.zoomBy((1f + (distance - previous) / 100f).coerceAtLeast(.1f))
+            if (previewMode) model.morphPreviewZoomChangedBy(kotlin.math.ln((distance / previous).coerceAtLeast(.01f)))
+            else model.zoomBy((1f + (distance - previous) / 100f).coerceAtLeast(.1f))
             cameraTouchMoved = true
+        }
+        if (previewMode) {
+            model.morphPreviewMoveEnded()
+            model.morphPreviewLookEnded()
         }
         previousPinchDistance = distance
     }

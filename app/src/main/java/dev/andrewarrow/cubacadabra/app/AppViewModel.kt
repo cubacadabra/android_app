@@ -174,6 +174,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
     fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
     fun saveProfileUsername() = dispatchApp(JSONObject().put("type", "save_username"))
+    fun loadAppearanceCatalog() = dispatchApp(JSONObject().put("type", "load_appearance_catalog"))
     fun beginMorphEdit() = dispatchApp(JSONObject().put("type", "begin_appearance_edit"))
     fun chooseMorphPreset(presetID: String) = dispatchApp(JSONObject().put("type", "select_morph_preset").put("preset_id", presetID))
     fun setMorphPart(assetID: String) = dispatchApp(JSONObject().put("type", "set_morph_part").put("asset_id", assetID))
