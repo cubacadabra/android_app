@@ -49,6 +49,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
     private var lastSentAt = 0L
     private var lastMove: SentMove? = null
     private var accessToken: String? = null
+    private var pendingAppearance: JSONObject? = null
 
     var onStateChange: (WorldConnectionState) -> Unit = {}
     var onPresence: (PresenceEvent) -> Unit = {}
@@ -86,6 +87,11 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
 
     fun setWorldConfigs(nextWorldConfigs: Map<String, JSONObject>) {
         worldConfigs = nextWorldConfigs
+    }
+
+    fun setAppearance(appearance: JSONObject) {
+        pendingAppearance = JSONObject(appearance.toString())
+        socket?.send(JSONObject().put("type", "set_appearance").put("appearance", pendingAppearance).toString())
     }
 
     fun sendMove(position: Vec3, yaw: Float, moving: Boolean, sprinting: Boolean, respawnEventId: Int) {
@@ -126,6 +132,7 @@ class WorldSocketClient(context: Context, private val scope: CoroutineScope) {
             if (webSocket != socket || stopped) return
             Log.d(TAG, "socket open world=$worldId")
             reconnectAttempt = 0
+            pendingAppearance?.let { webSocket.send(JSONObject().put("type", "set_appearance").put("appearance", it).toString()) }
             notifyState(WorldConnectionState.CONNECTED)
         }
 

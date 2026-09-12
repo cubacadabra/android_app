@@ -150,6 +150,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             update { copy(username = socket.username) }
         }
         socket.setAccessToken(session.accessToken)
+        session.appearanceJSON?.let { socket.setAppearance(JSONObject(it)) }
         session.username?.takeIf { it.isNotEmpty() }?.let {
             socket.adoptUsername(it)
             update { copy(username = it) }
@@ -157,11 +158,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (engine != 0L) {
             NativeEngine.nativeSetUsername(engine, _state.value.username.toByteArray(Charsets.UTF_8))
             NativeEngine.nativeSetAuthenticated(engine, session.accountID != null)
-            if (previous.bodyID != session.bodyID) applyAccountAppearance(engine)
+            if (previous.bodyID != session.bodyID || previous.appearanceJSON != session.appearanceJSON) applyAccountAppearance(engine)
         }
     }
 
     private fun applyAccountAppearance(targetEngine: Long) {
+        accountSession.appearanceJSON?.let { appearance ->
+            NativeEngine.nativeSetLocalAppearance(targetEngine, appearance.toByteArray(Charsets.UTF_8))
+            return
+        }
         val body = accountSession.bodyID ?: return
         val appearance = serverAppearance?.let { JSONObject(it.toString()) } ?: JSONObject().put("version", 1)
         appearance.put("body", body)

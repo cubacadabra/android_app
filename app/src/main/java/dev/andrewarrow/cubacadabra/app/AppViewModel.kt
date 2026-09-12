@@ -33,7 +33,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var started = false
     private var accessToken: String? = null
     private val _state = MutableStateFlow(
-        AppUiState(profileUsername = appSnapshot.profile, safety = appSnapshot.safety),
+        AppUiState(profileUsername = appSnapshot.profile, safety = appSnapshot.safety, appearance = appSnapshot.appearance),
     )
     val state = _state.asStateFlow()
     private val _gameSession = MutableStateFlow(AccountGameSession())
@@ -159,21 +159,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun publishGameSession() {
         val user = _state.value.authUser
         _gameSession.value = AccountGameSession(
-            appSnapshot.sessionId,
-            user?.id,
-            accessToken,
-            user?.username,
-            user?.bodyID,
-            appSnapshot.safety.blockedUserIDs.toSet(),
+            sessionID = appSnapshot.sessionId,
+            accountID = user?.id,
+            accessToken = accessToken,
+            username = user?.username,
+            bodyID = user?.bodyID,
+            appearanceJSON = appSnapshot.appearance.selectedBase?.let { base ->
+                JSONObject().put("version", 2).put("base", base)
+                    .put("parts", appSnapshot.appearance.selectedParts)
+                    .put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL)
+                    .put("parameters", JSONObject()).put("revision", 0).toString()
+            },
+            blockedUserIDs = appSnapshot.safety.blockedUserIDs.toSet(),
         )
     }
 
     fun beginProfileUsernameEdit() = dispatchApp(JSONObject().put("type", "begin_username_edit"))
     fun changeProfileUsername(value: String) = dispatchApp(JSONObject().put("type", "username_changed").put("value", value))
     fun saveProfileUsername() = dispatchApp(JSONObject().put("type", "save_username"))
-    fun beginMorphEdit() = dispatchApp(JSONObject().put("type", "begin_body_edit"))
-    fun changeMorph(bodyID: String) = dispatchApp(JSONObject().put("type", "body_changed").put("body_id", bodyID))
-    fun saveMorph() = dispatchApp(JSONObject().put("type", "save_body"))
+    fun beginMorphEdit() = dispatchApp(JSONObject().put("type", "begin_appearance_edit"))
+    fun chooseMorphPreset(presetID: String) = dispatchApp(JSONObject().put("type", "select_morph_preset").put("preset_id", presetID))
+    fun setMorphPart(assetID: String) = dispatchApp(JSONObject().put("type", "set_morph_part").put("asset_id", assetID))
+    fun clearMorphPart(assetID: String) = dispatchApp(JSONObject().put("type", "clear_morph_part").put("asset_id", assetID))
+    fun saveMorph() = dispatchApp(JSONObject().put("type", "save_appearance"))
     fun saveBirthday(dateOfBirth: String) = dispatchApp(JSONObject().put("type", "save_birthday").put("date_of_birth", dateOfBirth))
     fun loadCatalog(page: Int = 1, pageSize: Int = 20) = dispatchApp(
         JSONObject().put("type", "load_catalog").put("page", page).put("page_size", pageSize),
@@ -191,17 +199,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .put("username", user?.username ?: JSONObject.NULL)
             .put("body_id", user?.bodyID ?: JSONObject.NULL)
             .put("date_of_birth", user?.dateOfBirth ?: JSONObject.NULL))
+        dispatchApp(JSONObject().put("type", "load_appearance_catalog"))
     }
 
     private fun dispatchApp(action: JSONObject) {
         if (appClosed) return
+        val previousAppearanceJSON = appSnapshot.appearance.selectedBase?.let { base ->
+            JSONObject().put("version", 2).put("base", base).put("parts", appSnapshot.appearance.selectedParts).put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL).toString()
+        }
         profileRevision += 1
         appRuntime.dispatch(action)
         appSnapshot = appRuntime.snapshot()
-        update { copy(profileUsername = appSnapshot.profile, catalog = appSnapshot.catalog, safety = appSnapshot.safety) }
+        update { copy(profileUsername = appSnapshot.profile, catalog = appSnapshot.catalog, safety = appSnapshot.safety, appearance = appSnapshot.appearance) }
         if (_gameSession.value.blockedUserIDs != appSnapshot.safety.blockedUserIDs.toSet()) {
             publishGameSession()
         }
+        val nextAppearanceJSON = appSnapshot.appearance.selectedBase?.let { base ->
+            JSONObject().put("version", 2).put("base", base).put("parts", appSnapshot.appearance.selectedParts).put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL).toString()
+        }
+        if (previousAppearanceJSON != nextAppearanceJSON) publishGameSession()
         val user = _state.value.authUser
         if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
             val name = appSnapshot.profile.username

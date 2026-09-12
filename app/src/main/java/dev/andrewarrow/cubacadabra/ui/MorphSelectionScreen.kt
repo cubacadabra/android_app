@@ -1,31 +1,23 @@
 package dev.andrewarrow.cubacadabra.ui
 
-import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,200 +26,68 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
 import dev.andrewarrow.cubacadabra.R
 import dev.andrewarrow.cubacadabra.app.AppUiState
 import dev.andrewarrow.cubacadabra.app.AppViewModel
-
-internal data class MorphOption(
-    val bodyID: String,
-    val label: String,
-    @DrawableRes val imageResource: Int,
-) {
-    companion object {
-        val available = listOf(
-            MorphOption("cuba:person.v1", "Boy", R.drawable.player_boy_001),
-            MorphOption("cuba:person-girl.v1", "Girl", R.drawable.player_girl_001),
-            MorphOption("cuba:person-nb.v1", "Nonbinary", R.drawable.player_nb_001),
-        )
-
-        fun fromBodyID(bodyID: String?): MorphOption =
-            available.firstOrNull { it.bodyID == bodyID } ?: available.first()
-    }
-}
+import dev.andrewarrow.cubacadabra.game.AppMorphAsset
 
 @Composable
 internal fun MorphSelectionScreen(state: AppUiState, model: AppViewModel) {
-    var selectedBodyID by remember { mutableStateOf(MorphOption.fromBodyID(state.profileUsername.bodyID).bodyID) }
-
-    LaunchedEffect(state.profileUsername.bodyID) {
-        selectedBodyID = MorphOption.fromBodyID(state.profileUsername.bodyID).bodyID
-    }
+    var tab by remember { mutableStateOf(0) }
+    var previewAction by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { model.beginMorphEdit() }
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 18.dp)
-                .widthIn(max = 620.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            Text(
-                "CHOOSE YOUR MORPH",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.5.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f),
-            )
-            Text(
-                "Choose how you appear in a game.",
-                fontSize = 17.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = .78f),
-            )
-
-            MorphGrid(
-                selectedBodyID = selectedBodyID,
-                enabled = !state.profileUsername.bodyIsSaving,
-                onSelect = {
-                    selectedBodyID = it
-                    model.changeMorph(it)
-                },
-            )
-
-            state.profileUsername.bodyFeedback?.let { feedback ->
-                Text(
-                    feedback.message,
-                    color = if (feedback.kind == "error") {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+    val appearance = state.appearance
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("CHOOSE YOUR MORPH", style = MaterialTheme.typography.labelLarge)
+            Text("Choose a starter, then customize the details.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { tab = 0 }, modifier = Modifier.weight(1f)) { Text("STARTERS") }
+                OutlinedButton(onClick = { tab = 1 }, modifier = Modifier.weight(1f)) { Text("CUSTOMIZE") }
             }
-
-            Button(
-                onClick = { model.saveMorph() },
-                enabled = !state.profileUsername.bodyIsSaving,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            ) {
-                if (state.profileUsername.bodyIsSaving) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.width(18.dp).height(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("SAVE MORPH", fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            if (appearance.isLoading) CircularProgressIndicator()
+            else if (tab == 0) {
+                appearance.presets.forEach { preset ->
+                    OutlinedButton(onClick = { model.chooseMorphPreset(preset.id) }, modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp)) {
+                        Column(Modifier.fillMaxWidth()) { Text(preset.displayName); Text(if (preset.base == appearance.draftBase) "Selected" else "Ready to play", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            } else {
+                appearance.assets.filter { it.kind != "base" }.groupBy { it.kind }.toSortedMap().forEach { (kind, assets) ->
+                    MorphPartMenu(kind, assets, appearance, model)
                 }
             }
+            Text("PREVIEW", style = MaterialTheme.typography.labelLarge)
+            Image(painterResource(R.drawable.player_boy_001), contentDescription = "Morph preview", contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 190.dp).graphicsLayer {
+                    translationY = if (previewAction == "jump") -24f else 0f
+                    translationX = if (previewAction == "walk") 12f else 0f
+                    rotationY = if (previewAction == "turn") 180f else 0f
+                })
+            Text(if (previewAction == null) "Your morph is ready to try." else "Preview: ${previewAction!!.replaceFirstChar { it.uppercase() }}", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("walk", "jump", "turn").forEach { action -> OutlinedButton(onClick = { previewAction = action }) { Text(action.replaceFirstChar { it.uppercase() }) } }
+            }
+            appearance.feedback?.let { Text(it.message, color = if (it.kind == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+            Button(onClick = model::saveMorph, enabled = appearance.draftCanSave && !appearance.isSaving, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) { if (appearance.isSaving) CircularProgressIndicator() else Text("SAVE MORPH") }
         }
     }
 }
 
 @Composable
-private fun MorphGrid(
-    selectedBodyID: String,
-    enabled: Boolean,
-    onSelect: (String) -> Unit,
-) {
-    BoxWithConstraints(Modifier.fillMaxWidth().selectableGroup()) {
-        val columnCount = when {
-            maxWidth >= 520.dp -> 3
-            maxWidth >= 300.dp -> 2
-            else -> 1
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MorphOption.available.chunked(columnCount).forEach { rowOptions ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    rowOptions.forEach { option ->
-                        MorphCard(
-                            option = option,
-                            selected = option.bodyID == selectedBodyID,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    repeat(columnCount - rowOptions.size) {
-                        Box(Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MorphCard(
-    option: MorphOption,
-    selected: Boolean,
-    enabled: Boolean,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(18.dp)
-    val borderColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = .12f)
-    }
-    Surface(
-        modifier = modifier
-            .clip(shape)
-            .border(if (selected) 2.dp else 1.dp, borderColor, shape)
-            .selectable(
-                selected = selected,
-                enabled = enabled,
-                role = Role.RadioButton,
-                onClick = { onSelect(option.bodyID) },
-            ),
-        shape = shape,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) .11f else .055f),
-    ) {
-        Column(
-            Modifier.padding(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(15.dp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .06f),
-            ) {
-                Image(
-                    painter = painterResource(option.imageResource),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().height(190.dp).padding(horizontal = 8.dp),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            Text(
-                if (selected) "${option.label}  ✓" else option.label,
-                modifier = Modifier.heightIn(min = 24.dp),
-                color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-            )
+private fun MorphPartMenu(kind: String, assets: List<AppMorphAsset>, appearance: dev.andrewarrow.cubacadabra.game.AppAppearanceSnapshot, model: AppViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = assets.firstOrNull { appearance.draftParts.contains(it.id) }?.displayName ?: "None"
+    Column {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("${kind.replace('-', ' ').replaceFirstChar { it.uppercase() }}: $selected") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            androidx.compose.material3.DropdownMenuItem(text = { Text("None") }, onClick = { appearance.draftParts.firstOrNull { id -> assets.any { it.id == id } }?.let(model::clearMorphPart); expanded = false })
+            assets.forEach { asset -> androidx.compose.material3.DropdownMenuItem(text = { Text(asset.displayName) }, onClick = { model.setMorphPart(asset.id); expanded = false }) }
         }
     }
 }

@@ -27,6 +27,23 @@ data class AppCatalogSnapshot(
     val isLoading: Boolean = false,
     val feedback: AppCatalogFeedback? = null,
 )
+data class AppMorphAsset(val id: String, val kind: String, val displayName: String, val thumbnail: String?)
+data class AppMorphPreset(val id: String, val displayName: String, val base: String, val parts: List<String>, val face: String?, val thumbnail: String?)
+data class AppAppearanceSnapshot(
+    val release: String? = null,
+    val assets: List<AppMorphAsset> = emptyList(),
+    val presets: List<AppMorphPreset> = emptyList(),
+    val selectedBase: String? = null,
+    val selectedParts: List<String> = emptyList(),
+    val selectedFace: String? = null,
+    val draftBase: String? = null,
+    val draftParts: List<String> = emptyList(),
+    val draftFace: String? = null,
+    val draftCanSave: Boolean = false,
+    val isLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val feedback: AppCatalogFeedback? = null,
+)
 
 data class AppProfileSnapshot(
     val username: String? = null,
@@ -50,6 +67,7 @@ data class AppSnapshot(
     val profile: AppProfileSnapshot,
     val catalog: AppCatalogSnapshot,
     val safety: AppSafetySnapshot,
+    val appearance: AppAppearanceSnapshot,
 )
 data class AppHttpEffect(val effectId: Long, val accountId: String?, val method: String, val path: String, val body: String)
 
@@ -69,6 +87,7 @@ class AppRuntime : AutoCloseable {
         val profile = json.getJSONObject("profile")
         val catalogJSON = json.getJSONObject("catalog")
         val safetyJSON = json.getJSONObject("safety")
+        val appearanceJSON = json.getJSONObject("appearance")
         val catalogEntriesJSON = catalogJSON.getJSONArray("entries")
         val catalogEntries = List(catalogEntriesJSON.length()) { index ->
             catalogEntriesJSON.getJSONObject(index).let { entry ->
@@ -102,6 +121,16 @@ class AppRuntime : AutoCloseable {
         val birthdayFeedback = if (profile.isNull("birthday_feedback")) null else profile.getJSONObject("birthday_feedback").let {
             AppBirthdayFeedback(it.get("kind") as String, it.get("code") as String, it.get("message") as String)
         }
+        val morphAssetsJSON = appearanceJSON.getJSONArray("assets")
+        val morphAssets = List(morphAssetsJSON.length()) { index -> morphAssetsJSON.getJSONObject(index).let { asset ->
+            AppMorphAsset(asset.getString("id"), asset.getString("kind"), asset.getString("display_name"), asset.nullableString("thumbnail"))
+        } }
+        val morphPresetsJSON = appearanceJSON.getJSONArray("presets")
+        val morphPresets = List(morphPresetsJSON.length()) { index -> morphPresetsJSON.getJSONObject(index).let { preset ->
+            val partsJSON = preset.getJSONArray("parts")
+            AppMorphPreset(preset.getString("id"), preset.getString("display_name"), preset.getString("base"), List(partsJSON.length()) { partsJSON.getString(it) }, preset.nullableString("face"), preset.nullableString("thumbnail"))
+        } }
+        val appearanceFeedback = if (appearanceJSON.isNull("feedback")) null else appearanceJSON.getJSONObject("feedback").let { AppCatalogFeedback(it.getString("kind"), it.getString("code"), it.getString("message")) }
         return AppSnapshot(
             json.getLong("session_id"), json.nullableString("account_id"),
             AppProfileSnapshot(
@@ -125,6 +154,12 @@ class AppRuntime : AutoCloseable {
                 pendingUserID = safetyJSON.nullableString("pending_user_id"),
                 feedback = safetyFeedback,
             ),
+            AppAppearanceSnapshot(
+                appearanceJSON.nullableString("release"), morphAssets, morphPresets,
+                appearanceJSON.nullableString("selected_base"), appearanceJSON.stringList("selected_parts"), appearanceJSON.nullableString("selected_face"),
+                appearanceJSON.nullableString("draft_base"), appearanceJSON.stringList("draft_parts"), appearanceJSON.nullableString("draft_face"),
+                appearanceJSON.getBoolean("draft_can_save"), appearanceJSON.getBoolean("is_loading"), appearanceJSON.getBoolean("is_saving"), appearanceFeedback,
+            ),
         )
     }
 
@@ -146,4 +181,9 @@ class AppRuntime : AutoCloseable {
 private fun JSONObject.nullableString(key: String): String? {
     val value = get(key)
     return if (value == JSONObject.NULL) null else value as String
+}
+
+private fun JSONObject.stringList(key: String): List<String> {
+    val values = getJSONArray(key)
+    return List(values.length()) { values.getString(it) }
 }

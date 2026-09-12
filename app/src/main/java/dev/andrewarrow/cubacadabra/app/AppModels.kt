@@ -4,6 +4,7 @@ import dev.andrewarrow.cubacadabra.game.AppAuthUser
 import dev.andrewarrow.cubacadabra.game.AppProfileSnapshot
 import dev.andrewarrow.cubacadabra.game.AppCatalogSnapshot
 import dev.andrewarrow.cubacadabra.game.AppSafetySnapshot
+import dev.andrewarrow.cubacadabra.game.AppAppearanceSnapshot
 
 data class AppUiState(
     val isRestoring: Boolean = true,
@@ -14,6 +15,7 @@ data class AppUiState(
     val profileUsername: AppProfileSnapshot = AppProfileSnapshot(),
     val catalog: AppCatalogSnapshot = AppCatalogSnapshot(),
     val safety: AppSafetySnapshot = AppSafetySnapshot(),
+    val appearance: AppAppearanceSnapshot = AppAppearanceSnapshot(),
 ) {
     val isAuthenticated: Boolean get() = authUser != null
 }
@@ -25,5 +27,6 @@ data class AccountGameSession(
     val accessToken: String? = null,
     val username: String? = null,
     val bodyID: String? = null,
+    val appearanceJSON: String? = null,
     val blockedUserIDs: Set<String> = emptySet(),
 )

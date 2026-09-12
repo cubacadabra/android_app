@@ -174,7 +174,7 @@ private fun HomeMenu(
             if (appState.isAuthenticated) MenuGroup {
                 MenuRow("@", "Change your username", appState.authUser?.username ?: "Player", onUsername)
                 MenuDivider()
-                MenuRow("♙", "Choose your morph", MorphOption.fromBodyID(appState.authUser?.bodyID).label, onMorph)
+                MenuRow("♙", "Choose your morph", appState.appearance.presets.firstOrNull { it.base == appState.appearance.selectedBase }?.displayName ?: "Person 1", onMorph)
                 MenuDivider()
                 MenuRow("!", "Block or unblock players", "Players & safety", onSafety)
             }
