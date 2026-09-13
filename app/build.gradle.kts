@@ -53,6 +53,12 @@ val buildGamePackage = tasks.register<BuildGamePackageTask>("buildGamePackage") 
         fileTree(thirdGameRoot) { exclude("build/**") },
         fileTree(toolsRoot) { exclude(".venv/**", "__pycache__/**") },
     )
+    doFirst {
+        listOf("game-package", "game-package-second-game", "game-package-third-game")
+            .map { outputDirectory.get().asFile.resolve(it) }
+            .filter { it.isDirectory && !it.resolve(".cubacadabra-build").isFile }
+            .forEach(project::delete)
+    }
     environment("PYTHONPATH", toolsRoot.resolve("src").absolutePath)
     commandLine(
         "python3", "-m", "cubacadabra", "build-game", defaultGameRoot.absolutePath,

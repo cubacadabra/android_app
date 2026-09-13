@@ -93,6 +93,7 @@ data class LoadedGamePackage(
     val packageData: GamePackage,
     val manifest: String,
     val script: String,
+    val packageDescriptor: String,
     val audioAssets: Map<String, LoadedGameAudioAsset>,
     val imageAssets: Map<String, LoadedGameImageAsset>,
     val morphPacks: List<LoadedGameMorphPack>,

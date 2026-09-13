@@ -10,6 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.security.MessageDigest
 
 class GamePackageLoader(context: Context) {
     private companion object {
@@ -17,9 +18,10 @@ class GamePackageLoader(context: Context) {
         // The generated Luau package format changed with the Build Together
         // UI. Keep the old cache from overriding the corrected bundle after
         // an app update, matching the iOS loader's versioned cache keys.
-        const val CACHE_VERSION = "v4"
+        const val CACHE_VERSION = "v5"
         const val MAXIMUM_IMAGE_ASSETS = 16
         const val MAXIMUM_MORPH_PACKS = 32
+        val GAME_ID_PATTERN = Regex("^[a-z0-9]+(?:-[a-z0-9]+)*$")
         val AUDIO_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
         val AUDIO_PATH_PATTERN = Regex(
             "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wav$",
@@ -51,13 +53,18 @@ class GamePackageLoader(context: Context) {
         packageBaseUrl: String? = null,
         additionalMorphPackUrls: List<String> = emptyList(),
     ): LoadedGamePackage = withContext(Dispatchers.IO) {
+        if (!isValidGameID(gameID)) {
+            throw GamePackageException("The game ID must be 3–64 lowercase letters, numbers, and single dashes.")
+        }
         if (packageBaseUrl != null) {
             val base = packageBaseUrl.trimEnd('/') + "/"
             return@withContext loadPackageImages(
                 makePackage(
+                    fetch(URL(base + "package.json"), maximumManifestBytes),
                     fetch(URL(base + "manifest.json"), maximumManifestBytes),
                     fetch(URL(base + "game.luau"), maximumScriptBytes),
                     audioBaseUrl = base,
+                    expectedGameID = gameID,
                 ),
                 imageBaseUrl = base,
                 additionalMorphPackUrls = additionalMorphPackUrls,
@@ -94,36 +101,35 @@ class GamePackageLoader(context: Context) {
         val base = remoteBaseUrl(gameID)
         val downloaded = loadPackageImages(
             makePackage(
+                fetch(URL(base + "package.json"), maximumManifestBytes),
                 fetch(URL(base + "manifest.json"), maximumManifestBytes),
                 fetch(URL(base + "game.luau"), maximumScriptBytes),
                 audioBaseUrl = base,
+                expectedGameID = gameID,
             ),
             imageBaseUrl = base,
             additionalMorphPackUrls = additionalMorphPackUrls,
         )
-        preferences.edit()
-            .putString(manifestKey(gameID), downloaded.manifest)
-            .putString(scriptKey(gameID), downloaded.script)
-            .apply()
+        cachePackage(gameID, downloaded)
         Log.d(TAG, "package load game=$gameID selected=remote")
         downloaded
     }
 
     suspend fun refreshPackage(gameID: String = "first-game") = withContext(Dispatchers.IO) {
+        if (!isValidGameID(gameID)) return@withContext
         runCatching {
             val base = remoteBaseUrl(gameID)
             val downloadedPackage = loadPackageImages(
                 makePackage(
+                    fetch(URL(base + "package.json"), maximumManifestBytes),
                     fetch(URL(base + "manifest.json"), maximumManifestBytes),
                     fetch(URL(base + "game.luau"), maximumScriptBytes),
                     audioBaseUrl = base,
+                    expectedGameID = gameID,
                 ),
                 imageBaseUrl = base,
             )
-            preferences.edit()
-                .putString(manifestKey(gameID), downloadedPackage.manifest)
-                .putString(scriptKey(gameID), downloadedPackage.script)
-                .apply()
+            cachePackage(gameID, downloadedPackage)
         }.onSuccess {
             Log.d(TAG, "package refresh succeeded")
         }.onFailure {
@@ -132,14 +138,19 @@ class GamePackageLoader(context: Context) {
     }
 
     private fun cachedPackage(gameID: String, additionalMorphPackUrls: List<String>): LoadedGamePackage? {
-        val manifest = preferences.getString(manifestKey(gameID), null).orEmpty()
-        val script = preferences.getString(scriptKey(gameID), null).orEmpty()
-        if (manifest.isEmpty() || script.isEmpty()) return null
+        val cached = preferences.getString(packageKey(gameID), null) ?: return null
+        val cachedObject = runCatching { JSONObject(cached) }.getOrNull() ?: return null
+        val manifest = cachedObject.optString("manifest")
+        val script = cachedObject.optString("script")
+        val packageDescriptor = cachedObject.optString("package")
+        if (packageDescriptor.isEmpty() || manifest.isEmpty() || script.isEmpty()) return null
         val loaded = runCatching {
             makePackage(
+                packageDescriptor.toByteArray(Charsets.UTF_8),
                 manifest.toByteArray(Charsets.UTF_8),
                 script.toByteArray(Charsets.UTF_8),
                 audioBaseUrl = remoteBaseUrl(gameID),
+                expectedGameID = gameID,
             )
         }.getOrNull()
         return loaded?.let {
@@ -157,10 +168,11 @@ class GamePackageLoader(context: Context) {
         val directory = if (gameID == "first-game") "game-package" else "game-package-$gameID"
         val manifestPath = "$directory/manifest.json"
         val scriptPath = "$directory/game.luau"
+        val packageBytes = applicationContext.assets.open("$directory/package.json").use { it.readBytes() }
         val manifestBytes = applicationContext.assets.open(manifestPath).use { it.readBytes() }
         val scriptBytes = applicationContext.assets.open(scriptPath).use { it.readBytes() }
         return loadPackageImages(
-            makePackage(manifestBytes, scriptBytes, bundledDirectory = directory),
+            makePackage(packageBytes, manifestBytes, scriptBytes, bundledDirectory = directory, expectedGameID = gameID),
             bundledDirectory = directory,
             additionalMorphPackUrls = additionalMorphPackUrls,
         )
@@ -175,19 +187,35 @@ class GamePackageLoader(context: Context) {
         return "${base.substring(0, parentPathEnd)}/$gameID/"
     }
 
-    private fun manifestKey(gameID: String) = "manifest.$CACHE_VERSION.$gameID"
-    private fun scriptKey(gameID: String) = "script.$CACHE_VERSION.$gameID"
+    private fun packageKey(gameID: String) = "package.$CACHE_VERSION.$gameID"
+
+    private fun cachePackage(gameID: String, packageData: LoadedGamePackage) {
+        val encoded = JSONObject()
+            .put("package", packageData.packageDescriptor)
+            .put("manifest", packageData.manifest)
+            .put("script", packageData.script)
+            .toString()
+        preferences.edit().putString(packageKey(gameID), encoded).apply()
+    }
 
     private fun makePackage(
+        packageBytes: ByteArray,
         manifestBytes: ByteArray,
         scriptBytes: ByteArray,
         audioBaseUrl: String? = null,
         bundledDirectory: String? = null,
+        expectedGameID: String? = null,
     ): LoadedGamePackage {
+        if (!verifyPackageDescriptor(packageBytes, expectedGameID, manifestBytes, scriptBytes)) {
+            throw GamePackageException("The game package files do not match their release descriptor.")
+        }
         val manifest = decodeUtf8(manifestBytes)
         val script = decodeUtf8(scriptBytes)
         if (script.isEmpty()) throw GamePackageException("The Luau game script is empty.")
         val manifestObject = JSONObject(manifest)
+        if (expectedGameID != null && manifestObject.optString("id") != expectedGameID) {
+            throw GamePackageException("The game package ID does not match the requested game.")
+        }
         val packageData = parsePackage(manifestObject)
         if (packageData.worldDefinition(packageData.initialWorld) == null) {
             throw GamePackageException("The game world \"${packageData.initialWorld}\" was not found.")
@@ -197,12 +225,34 @@ class GamePackageLoader(context: Context) {
             packageData,
             manifest,
             script,
+            decodeUtf8(packageBytes),
             audioAssets,
             emptyMap(),
             emptyList(),
             GamePackageVersion.parse(manifestObject.optString("version", null)),
         )
     }
+
+    private fun verifyPackageDescriptor(
+        packageBytes: ByteArray,
+        expectedGameID: String?,
+        manifestBytes: ByteArray,
+        scriptBytes: ByteArray,
+    ): Boolean {
+        val descriptor = runCatching { JSONObject(decodeUtf8(packageBytes)) }.getOrNull() ?: return false
+        if (descriptor.optString("entry") != "game.luau" || descriptor.optString("manifest") != "manifest.json") return false
+        if (expectedGameID != null && descriptor.optString("id") != expectedGameID) return false
+        val checksums = descriptor.optJSONObject("sha256") ?: return false
+        return checksums.optString("manifest.json") == sha256Hex(manifestBytes)
+            && checksums.optString("game.luau") == sha256Hex(scriptBytes)
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString("") { byte -> "%02x".format(byte) }
+
+    private fun isValidGameID(gameID: String): Boolean =
+        gameID.length in 3..64 && GAME_ID_PATTERN.matches(gameID)
 
     private fun loadPackageImages(
         loaded: LoadedGamePackage,
