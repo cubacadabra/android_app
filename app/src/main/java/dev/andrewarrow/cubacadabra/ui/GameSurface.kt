@@ -23,7 +23,10 @@ internal fun RustGameSurface(
     AndroidView(
         modifier = modifier,
         factory = { context -> InteractiveGameSurface(context, model, avatarPreviewMode) },
-        update = { view -> view.setAvatarPreviewMode(avatarPreviewMode) },
+        update = { view ->
+            view.setAvatarPreviewMode(avatarPreviewMode)
+            view.ensureRenderer()
+        },
     )
 }
 
@@ -70,6 +73,13 @@ private class InteractiveGameSurface(
     fun setAvatarPreviewMode(enabled: Boolean) {
         previewMode = enabled
         model.setAvatarPreviewMode(enabled, previewMode)
+    }
+
+    fun ensureRenderer() {
+        val surface = holder.surface
+        if (surface.isValid && width > 0 && height > 0) {
+            model.createRenderer(surface, width.toFloat(), height.toFloat(), previewMode)
+        }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) = model.destroyRenderer(previewMode)
