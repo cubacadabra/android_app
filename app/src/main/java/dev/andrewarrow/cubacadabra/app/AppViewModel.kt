@@ -169,7 +169,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             appearanceJSON = appSnapshot.appearance.selectedLoadoutJSON,
             morphArtifactURLs = appSnapshot.appearance.assets.mapNotNull { asset ->
                 val path = asset.artifactURL ?: return@mapNotNull null
-                val url = runCatching { URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/", path) }.getOrNull()
+                val url = runCatching {
+                    URL(URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/"), path)
+                }.getOrNull()
                     ?: return@mapNotNull null
                 asset.id to url.toString()
             }.toMap(),
@@ -266,7 +268,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun morphArtifactURLs(): Map<String, String> = appSnapshot.appearance.assets.mapNotNull { asset ->
         val path = asset.artifactURL ?: return@mapNotNull null
-        val url = runCatching { URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/", path) }.getOrNull()
+        val url = runCatching {
+            URL(URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/"), path)
+        }.getOrNull()
             ?: return@mapNotNull null
         asset.id to url.toString()
     }.toMap()
