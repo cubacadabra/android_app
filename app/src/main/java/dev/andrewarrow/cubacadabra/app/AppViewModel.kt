@@ -8,6 +8,7 @@ import dev.andrewarrow.cubacadabra.game.AppAuthenticationService
 import dev.andrewarrow.cubacadabra.game.AppAuthException
 import dev.andrewarrow.cubacadabra.game.AppAuthResult
 import dev.andrewarrow.cubacadabra.game.AppRuntime
+import dev.andrewarrow.cubacadabra.game.ClientConfiguration
 import dev.andrewarrow.cubacadabra.game.NativeGoogleSignInService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
