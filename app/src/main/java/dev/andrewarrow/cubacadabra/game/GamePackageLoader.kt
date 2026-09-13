@@ -160,7 +160,7 @@ class GamePackageLoader(context: Context) {
                     imageBaseUrl = remoteBaseUrl(gameID),
                     additionalMorphPackUrls = additionalMorphPackUrls,
                 )
-            }.getOrDefault(it)
+            }.getOrNull()
         }
     }
 
@@ -242,6 +242,8 @@ class GamePackageLoader(context: Context) {
         val descriptor = runCatching { JSONObject(decodeUtf8(packageBytes)) }.getOrNull() ?: return false
         if (descriptor.optString("entry") != "game.luau" || descriptor.optString("manifest") != "manifest.json") return false
         if (expectedGameID != null && descriptor.optString("id") != expectedGameID) return false
+        val manifest = runCatching { JSONObject(decodeUtf8(manifestBytes)) }.getOrNull() ?: return false
+        if (descriptor.opt("version")?.toString() != manifest.opt("version")?.toString()) return false
         val checksums = descriptor.optJSONObject("sha256") ?: return false
         return checksums.optString("manifest.json") == sha256Hex(manifestBytes)
             && checksums.optString("game.luau") == sha256Hex(scriptBytes)
@@ -292,10 +294,55 @@ class GamePackageLoader(context: Context) {
                 put(id, LoadedGameImageAsset(data))
             }
         }
-        return loaded.copy(
+        val result = loaded.copy(
             imageAssets = images,
             morphPacks = loadMorphPacks(loaded, imageBaseUrl, bundledDirectory, additionalMorphPackUrls),
         )
+        verifyPackageContents(result, imageBaseUrl, bundledDirectory)
+        return result
+    }
+
+    private fun verifyPackageContents(
+        loaded: LoadedGamePackage,
+        baseUrl: String?,
+        bundledDirectory: String?,
+    ) {
+        val descriptor = runCatching { JSONObject(loaded.packageDescriptor) }.getOrElse {
+            throw GamePackageException("The game package descriptor is invalid.")
+        }
+        val files = descriptor.optJSONArray("files") ?: throw GamePackageException(
+            "The game package descriptor file table is invalid."
+        )
+        val checksums = descriptor.optJSONObject("sha256") ?: throw GamePackageException(
+            "The game package descriptor file table is invalid."
+        )
+        val names = mutableSetOf<String>()
+        for (index in 0 until files.length()) {
+            val path = files.optString(index, "")
+            if (path.isEmpty()
+                || path.startsWith("/")
+                || path.split('/').any { it == ".." }
+                || !names.add(path)
+                || checksums.optString(path, "").isEmpty()
+            ) {
+                throw GamePackageException("The game package descriptor file table is invalid.")
+            }
+            val bytes = when {
+                path == "manifest.json" -> loaded.manifest.toByteArray(Charsets.UTF_8)
+                path == "game.luau" -> loaded.script.toByteArray(Charsets.UTF_8)
+                bundledDirectory != null -> applicationContext.assets.open(
+                    "$bundledDirectory/$path"
+                ).use { it.readBytes() }
+                baseUrl != null -> fetch(URL(baseUrl + path), maximumMorphPackBytes)
+                else -> throw GamePackageException("The game package asset source is unavailable.")
+            }
+            if (sha256Hex(bytes) != checksums.optString(path)) {
+                throw GamePackageException("The game package files do not match their release descriptor.")
+            }
+        }
+        if (!names.contains("manifest.json") || !names.contains("game.luau")) {
+            throw GamePackageException("The game package descriptor file table is invalid.")
+        }
     }
 
     private fun loadMorphPacks(
