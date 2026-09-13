@@ -16,7 +16,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
@@ -42,6 +41,7 @@ private val MORPH_PREVIEW_MANIFEST = """
 """.trimIndent()
 
 private const val MORPH_PREVIEW_SCRIPT = "return {}"
+private const val MAXIMUM_MORPH_PACK_BYTES = 64 * 1024 * 1024
 
 private data class EngineUiEvent(
     val nodeId: String,
@@ -86,6 +86,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val morphPreviewReady: StateFlow<Boolean> = _morphPreviewReady.asStateFlow()
 
     private val loader = GamePackageLoader(application)
+    private val morphPackCache = MorphPackCache(application)
     private val gameAudio = GameAudio(application)
     private val socket = WorldSocketClient(application, viewModelScope)
     private var engine: Long = 0
@@ -206,6 +207,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun accountMorphPackUrls(): List<String> {
+        val appearance = accountSession.appearanceJSON?.let { source ->
+            runCatching { JSONObject(source) }.getOrNull()
+        } ?: return emptyList()
+        val ids = buildList {
+            appearance.optString("base").takeIf { it.isNotEmpty() }?.let(::add)
+            appearance.optJSONArray("parts")?.let { parts ->
+                for (index in 0 until parts.length()) add(parts.getString(index))
+            }
+            appearance.optString("face").takeIf { it.isNotEmpty() }?.let(::add)
+        }
+        val seen = mutableSetOf<String>()
+        return ids.filter { seen.add(it) }.mapNotNull { accountSession.morphArtifactURLs[it] }
+    }
+
     private fun applyAccountAppearance(targetEngine: Long) {
         accountSession.appearanceJSON?.let { appearance ->
             NativeEngine.nativeSetLocalAppearance(targetEngine, appearance.toByteArray(Charsets.UTF_8))
@@ -224,7 +240,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         update { copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
             runCatching {
-                val loaded = withContext(Dispatchers.IO) { loader.load("first-game") }
+                val loaded = withContext(Dispatchers.IO) {
+                    loader.load("first-game", additionalMorphPackUrls = accountMorphPackUrls())
+                }
                 if (generation != gameLoadGeneration) return@launch
                 val created = createEngine(loaded)
                 gameAudio.configure(loaded.audioAssets)
@@ -419,7 +437,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val downloaded = withContext(Dispatchers.IO) {
                     packURLs.distinctBy { it.toString() }.associate { url ->
-                        url.toString() to fetchMorphPack(url)
+                        url.toString() to fetchMorphPack(url, morphPackCache, MAXIMUM_MORPH_PACK_BYTES)
                     }
                 }
                 if (generation != morphPreviewGeneration) return@launch
@@ -444,25 +462,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { error ->
                 if (generation == morphPreviewGeneration) Log.w(TAG, "Morph preview update failed", error)
             }
-        }
-    }
-
-    private fun fetchMorphPack(url: URL): ByteArray {
-        val connection = (url.openConnection() as? HttpURLConnection)
-            ?: throw IllegalArgumentException("The morph pack URL must use HTTP or HTTPS.")
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 20_000
-        connection.requestMethod = "GET"
-        connection.connect()
-        try {
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("The morph pack server returned HTTP ${connection.responseCode}.")
-            }
-            val bytes = connection.inputStream.use { it.readBytes() }
-            check(bytes.isNotEmpty() && bytes.size <= 64 * 1024 * 1024) { "The morph pack is invalid or too large." }
-            return bytes
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -860,7 +859,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 val loaded = withContext(Dispatchers.IO) {
-                    loader.load(game.id, packageBaseUrl = game.packageBaseUrl)
+                    loader.load(
+                        game.id,
+                        packageBaseUrl = game.packageBaseUrl,
+                        additionalMorphPackUrls = accountMorphPackUrls(),
+                    )
                 }
                 if (generation != gameLoadGeneration) return@launch
                 val nextEngine = createEngine(loaded)

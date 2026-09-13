@@ -126,7 +126,6 @@ internal fun MorphSelectionScreen(
         val packUrls = ids.mapNotNull { id ->
             val asset = appearance.assets.firstOrNull { it.id == id }
                 ?: error("Morph preview catalog is missing asset $id")
-            if (asset.kind == "face") return@mapNotNull null
             val path = asset.artifactURL
                 ?: error("Morph asset $id has no schema-5 artifact")
             runCatching { URL(baseUrl, path) }

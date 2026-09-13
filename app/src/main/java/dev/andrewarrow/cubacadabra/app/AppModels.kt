@@ -28,5 +28,6 @@ data class AccountGameSession(
     val username: String? = null,
     val bodyID: String? = null,
     val appearanceJSON: String? = null,
+    val morphArtifactURLs: Map<String, String> = emptyMap(),
     val blockedUserIDs: Set<String> = emptySet(),
 )

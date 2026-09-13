@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.lang.ref.WeakReference
+import java.net.URL
 import kotlin.coroutines.coroutineContext
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -165,6 +166,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             username = user?.username,
             bodyID = user?.bodyID,
             appearanceJSON = appSnapshot.appearance.selectedLoadoutJSON,
+            morphArtifactURLs = appSnapshot.appearance.assets.mapNotNull { asset ->
+                val path = asset.artifactURL ?: return@mapNotNull null
+                val url = runCatching { URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/", path) }.getOrNull()
+                    ?: return@mapNotNull null
+                asset.id to url.toString()
+            }.toMap(),
             blockedUserIDs = appSnapshot.safety.blockedUserIDs.toSet(),
         )
     }
@@ -205,6 +212,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val previousAppearanceJSON = appSnapshot.appearance.selectedBase?.let { base ->
             JSONObject().put("version", 2).put("base", base).put("parts", appSnapshot.appearance.selectedParts).put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL).toString()
         }
+        val previousMorphArtifactURLs = morphArtifactURLs()
         profileRevision += 1
         appRuntime.dispatch(action)
         appSnapshot = appRuntime.snapshot()
@@ -216,6 +224,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             JSONObject().put("version", 2).put("base", base).put("parts", appSnapshot.appearance.selectedParts).put("face", appSnapshot.appearance.selectedFace ?: JSONObject.NULL).toString()
         }
         if (previousAppearanceJSON != nextAppearanceJSON) publishGameSession()
+        if (previousMorphArtifactURLs != morphArtifactURLs()) publishGameSession()
         val user = _state.value.authUser
         if (user != null && user.id == appSnapshot.accountId && user.username != appSnapshot.profile.username) {
             val name = appSnapshot.profile.username
@@ -253,6 +262,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    private fun morphArtifactURLs(): Map<String, String> = appSnapshot.appearance.assets.mapNotNull { asset ->
+        val path = asset.artifactURL ?: return@mapNotNull null
+        val url = runCatching { URL(ClientConfiguration.backendApiUrl.trimEnd('/') + "/", path) }.getOrNull()
+            ?: return@mapNotNull null
+        asset.id to url.toString()
+    }.toMap()
 
 
 

@@ -38,6 +38,7 @@ class GamePackageLoader(context: Context) {
     }
 
     private val applicationContext = context.applicationContext
+    private val morphPackCache = MorphPackCache(applicationContext)
     private val preferences = context.getSharedPreferences("game-package", Context.MODE_PRIVATE)
     private val maximumManifestBytes = 512 * 1024
     private val maximumScriptBytes = 512 * 1024
@@ -48,6 +49,7 @@ class GamePackageLoader(context: Context) {
     suspend fun load(
         gameID: String = "first-game",
         packageBaseUrl: String? = null,
+        additionalMorphPackUrls: List<String> = emptyList(),
     ): LoadedGamePackage = withContext(Dispatchers.IO) {
         if (packageBaseUrl != null) {
             val base = packageBaseUrl.trimEnd('/') + "/"
@@ -58,6 +60,7 @@ class GamePackageLoader(context: Context) {
                     audioBaseUrl = base,
                 ),
                 imageBaseUrl = base,
+                additionalMorphPackUrls = additionalMorphPackUrls,
             ).also {
                 Log.d(TAG, "package load game=$gameID selected=catalog")
             }
@@ -66,13 +69,13 @@ class GamePackageLoader(context: Context) {
             // The Android build assembles the sibling game project into the
             // APK. Prefer that package during local development so source
             // edits are never hidden by an older cached package.
-            return@withContext loadBundledPackage(gameID).also {
+            return@withContext loadBundledPackage(gameID, additionalMorphPackUrls).also {
                 Log.d(TAG, "package load game=$gameID selected=bundled-debug")
             }
         }
-        val bundled = runCatching { loadBundledPackage(gameID) }.getOrNull()
+        val bundled = runCatching { loadBundledPackage(gameID, additionalMorphPackUrls) }.getOrNull()
         if (bundled != null) {
-            val cached = cachedPackage(gameID)
+            val cached = cachedPackage(gameID, additionalMorphPackUrls)
             if (cached?.version != null &&
                 bundled.version != null &&
                 cached.version > bundled.version
@@ -83,7 +86,7 @@ class GamePackageLoader(context: Context) {
             Log.d(TAG, "package load game=$gameID selected=bundled")
             return@withContext bundled
         }
-        val cached = cachedPackage(gameID)
+        val cached = cachedPackage(gameID, additionalMorphPackUrls)
         if (cached != null) {
             Log.d(TAG, "package load game=$gameID selected=cached-no-bundle")
             return@withContext cached
@@ -96,6 +99,7 @@ class GamePackageLoader(context: Context) {
                 audioBaseUrl = base,
             ),
             imageBaseUrl = base,
+            additionalMorphPackUrls = additionalMorphPackUrls,
         )
         preferences.edit()
             .putString(manifestKey(gameID), downloaded.manifest)
@@ -127,7 +131,7 @@ class GamePackageLoader(context: Context) {
         }
     }
 
-    private fun cachedPackage(gameID: String): LoadedGamePackage? {
+    private fun cachedPackage(gameID: String, additionalMorphPackUrls: List<String>): LoadedGamePackage? {
         val manifest = preferences.getString(manifestKey(gameID), null).orEmpty()
         val script = preferences.getString(scriptKey(gameID), null).orEmpty()
         if (manifest.isEmpty() || script.isEmpty()) return null
@@ -139,11 +143,17 @@ class GamePackageLoader(context: Context) {
             )
         }.getOrNull()
         return loaded?.let {
-            runCatching { loadPackageImages(it, imageBaseUrl = remoteBaseUrl(gameID)) }.getOrDefault(it)
+            runCatching {
+                loadPackageImages(
+                    it,
+                    imageBaseUrl = remoteBaseUrl(gameID),
+                    additionalMorphPackUrls = additionalMorphPackUrls,
+                )
+            }.getOrDefault(it)
         }
     }
 
-    private fun loadBundledPackage(gameID: String): LoadedGamePackage {
+    private fun loadBundledPackage(gameID: String, additionalMorphPackUrls: List<String> = emptyList()): LoadedGamePackage {
         val directory = if (gameID == "first-game") "game-package" else "game-package-$gameID"
         val manifestPath = "$directory/manifest.json"
         val scriptPath = "$directory/game.luau"
@@ -152,6 +162,7 @@ class GamePackageLoader(context: Context) {
         return loadPackageImages(
             makePackage(manifestBytes, scriptBytes, bundledDirectory = directory),
             bundledDirectory = directory,
+            additionalMorphPackUrls = additionalMorphPackUrls,
         )
     }
 
@@ -197,6 +208,7 @@ class GamePackageLoader(context: Context) {
         loaded: LoadedGamePackage,
         imageBaseUrl: String? = null,
         bundledDirectory: String? = null,
+        additionalMorphPackUrls: List<String> = emptyList(),
     ): LoadedGamePackage {
         val definitions = loaded.packageData.assets?.images.orEmpty()
         if (definitions.size > MAXIMUM_IMAGE_ASSETS) {
@@ -230,36 +242,63 @@ class GamePackageLoader(context: Context) {
                 put(id, LoadedGameImageAsset(data))
             }
         }
-        return loaded.copy(imageAssets = images, morphPacks = loadMorphPacks(loaded, imageBaseUrl, bundledDirectory))
+        return loaded.copy(
+            imageAssets = images,
+            morphPacks = loadMorphPacks(loaded, imageBaseUrl, bundledDirectory, additionalMorphPackUrls),
+        )
     }
 
     private fun loadMorphPacks(
         loaded: LoadedGamePackage,
         baseUrl: String?,
         bundledDirectory: String?,
+        additionalMorphPackUrls: List<String> = emptyList(),
     ): List<LoadedGameMorphPack> {
         val definitions = loaded.packageData.assets?.morphPacks.orEmpty()
         if (definitions.size > MAXIMUM_MORPH_PACKS) {
             throw GamePackageException("This game declares too many morph packs.")
         }
         var totalBytes = 0
-        return definitions.toSortedMap().map { (id, definition) ->
-            if (!MORPH_ID_PATTERN.matches(id) || !MORPH_PATH_PATTERN.matches(definition.path)) {
+        data class MorphPackSource(val id: String, val path: String, val accountAsset: Boolean)
+        val entries = definitions.toSortedMap()
+            .map { (id, definition) -> MorphPackSource(id, definition.path, accountAsset = false) }
+            .toMutableList()
+        val seenUrls = entries.mapTo(mutableSetOf()) { it.path }
+        additionalMorphPackUrls.forEachIndexed { index, url ->
+            if (seenUrls.add(url)) entries += MorphPackSource("account-morph-$index", url, accountAsset = true)
+        }
+        return entries.map { entry ->
+            val id = entry.id
+            val path = entry.path
+            if (!entry.accountAsset && (!MORPH_ID_PATTERN.matches(id) || !MORPH_PATH_PATTERN.matches(path))) {
                 throw GamePackageException("The game morph pack \"$id\" is invalid.")
             }
             val data = when {
-                bundledDirectory != null -> {
-                    val path = "$bundledDirectory/${definition.path}"
-                    applicationContext.assets.open(path).use { it.readBytes() }
-                }
-                baseUrl != null -> {
-                    val url = runCatching { URL(baseUrl + definition.path) }.getOrNull()
+                entry.accountAsset -> {
+                    val url = runCatching { URL(path) }.getOrNull()
                     if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
                         throw GamePackageException("The game morph pack \"$id\" is invalid.")
                     }
-                    fetch(url, maximumMorphPackBytes)
+                    fetchMorphPack(url, morphPackCache, maximumMorphPackBytes)
                 }
-                else -> throw GamePackageException("The game morph pack \"$id\" is invalid.")
+                bundledDirectory != null -> {
+                    val assetPath = "$bundledDirectory/$path"
+                    applicationContext.assets.open(assetPath).use { it.readBytes() }
+                }
+                baseUrl != null -> {
+                    val url = runCatching { URL(baseUrl + path) }.getOrNull()
+                    if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                        throw GamePackageException("The game morph pack \"$id\" is invalid.")
+                    }
+                    fetchMorphPack(url, morphPackCache, maximumMorphPackBytes)
+                }
+                else -> {
+                    val url = runCatching { URL(path) }.getOrNull()
+                    if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                        throw GamePackageException("The game morph pack \"$id\" is invalid.")
+                    }
+                    fetchMorphPack(url, morphPackCache, maximumMorphPackBytes)
+                }
             }
             if (data.isEmpty() || data.size > maximumMorphPackBytes) {
                 throw GamePackageException("The game morph pack \"$id\" is invalid.")
