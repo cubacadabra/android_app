@@ -7,7 +7,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,15 +20,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -149,79 +145,87 @@ internal fun MorphSelectionScreen(
                 )
             },
         ) { contentPadding ->
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(contentPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack, modifier = Modifier.size(44.dp)) { Text("‹", fontSize = 30.sp) }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Edit Morph", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        Text(previewName, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f), fontSize = 13.sp, maxLines = 1)
-                    }
-                    Spacer(Modifier.size(44.dp))
-                }
-
-                MorphModePicker(tab = tab, onSelect = { value ->
-                    tab = value
-                    if (value == 1 && selectedKind == null) selectedKind = assetGroups.firstOrNull()?.kind
-                })
-
-                MorphPreviewStage(gameModel, previewReady, Modifier.fillMaxWidth())
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 760.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f)),
+                val previewHeight = (maxHeight * .28f).coerceIn(220.dp, 300.dp)
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                        Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
-                            Box(Modifier.width(42.dp).height(5.dp).background(MaterialTheme.colorScheme.onSurface.copy(.22f), RoundedCornerShape(4.dp)))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBack, modifier = Modifier.size(44.dp)) { Text("‹", fontSize = 30.sp) }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Edit Morph", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Text(previewName, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f), fontSize = 13.sp, maxLines = 1)
                         }
-                        MorphCategoryStrip(
-                            categories = categories,
-                            tab = tab,
-                            activeKind = activeGroup?.kind,
-                            page = categoryPage,
-                            onPageChange = { categoryPage = it },
-                            onSelect = { category ->
-                                if (category.kind == null) tab = 0
-                                else {
-                                    tab = 1
-                                    selectedKind = category.kind
-                                    assetPage = 0
-                                }
-                            },
-                        )
-                        if (appearance.isLoading) {
-                            Column(
-                                Modifier.fillMaxWidth().heightIn(min = 190.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                CircularProgressIndicator()
-                                Text("Loading morphs…", modifier = Modifier.padding(top = 12.dp), fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(44.dp))
+                    }
+
+                    MorphModePicker(tab = tab, onSelect = { value ->
+                        tab = value
+                        if (value == 1 && selectedKind == null) selectedKind = assetGroups.firstOrNull()?.kind
+                    })
+
+                    MorphPreviewStage(
+                        gameModel,
+                        previewReady,
+                        Modifier.widthIn(max = 760.dp).fillMaxWidth().height(previewHeight),
+                    )
+
+                    Surface(
+                        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().weight(1f),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 3.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f)),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                            Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
+                                Box(Modifier.width(42.dp).height(5.dp).background(MaterialTheme.colorScheme.onSurface.copy(.22f), RoundedCornerShape(4.dp)))
                             }
-                        } else if (tab == 0) {
-                            MorphStarterList(appearance.presets, appearance.draftPresetID, starterPage, appearance.isSaving, { starterPage = it }, model::chooseMorphPreset)
-                        } else {
-                            MorphCustomizeList(activeGroup, appearance, assetPage, appearance.isSaving, { assetPage = it }, model::setMorphPart, model::clearMorphPart)
-                        }
-                        appearance.feedback?.let { feedback ->
-                            Text(
-                                feedback.message,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-                                color = if (feedback.kind == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
+                            MorphCategoryStrip(
+                                categories = categories,
+                                tab = tab,
+                                activeKind = activeGroup?.kind,
+                                page = categoryPage,
+                                onPageChange = { categoryPage = it },
+                                onSelect = { category ->
+                                    if (category.kind == null) tab = 0
+                                    else {
+                                        tab = 1
+                                        selectedKind = category.kind
+                                        assetPage = 0
+                                    }
+                                },
                             )
+                            if (appearance.isLoading) {
+                                Column(
+                                    Modifier.fillMaxWidth().heightIn(min = 190.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator()
+                                    Text("Loading morphs…", modifier = Modifier.padding(top = 12.dp), fontWeight = FontWeight.SemiBold)
+                                }
+                            } else if (tab == 0) {
+                                MorphStarterList(appearance.presets, appearance.draftPresetID, starterPage, appearance.isSaving, { starterPage = it }, model::chooseMorphPreset)
+                            } else {
+                                MorphCustomizeList(activeGroup, appearance, assetPage, appearance.isSaving, { assetPage = it }, model::setMorphPart, model::clearMorphPart)
+                            }
+                            appearance.feedback?.let { feedback ->
+                                Text(
+                                    feedback.message,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                                    color = if (feedback.kind == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                )
+                            }
                         }
                     }
                 }
@@ -256,7 +260,7 @@ private fun MorphModeButton(title: String, selected: Boolean, modifier: Modifier
 private fun MorphPreviewStage(gameModel: GameViewModel, previewReady: Boolean, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(28.dp)
     Box(
-        modifier = modifier.heightIn(min = 250.dp, max = 320.dp).clip(shape).background(
+        modifier = modifier.clip(shape).background(
             Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(.30f), MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.secondary.copy(.24f))),
         ).border(1.dp, MaterialTheme.colorScheme.onBackground.copy(.12f), shape),
     ) {
@@ -272,7 +276,7 @@ private fun MorphPreviewStage(gameModel: GameViewModel, previewReady: Boolean, m
             }
             Text("✦  LIVE PREVIEW", modifier = Modifier.align(Alignment.TopStart).padding(14.dp).background(Color.Black.copy(.30f), CircleShape).padding(horizontal = 12.dp, vertical = 8.dp), color = Color.White.copy(.86f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
             Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Drag to orbit · Pinch to zoom", color = Color.White.copy(.75f), fontSize = 10.sp, maxLines = 1)
+                Text("Left: move · Right: orbit · Pinch: zoom", color = Color.White.copy(.75f), fontSize = 10.sp, maxLines = 1)
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     listOf("Walk" to "walk", "Jump" to "jump", "Turn" to "turn").forEach { (label, action) ->
                         TextButton(onClick = { gameModel.playMorphPreview(action) }, modifier = Modifier.heightIn(min = 40.dp), colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
@@ -291,7 +295,7 @@ private fun MorphCategoryStrip(categories: List<MorphEditorCategory>, tab: Int, 
         val safePage = page.coerceIn(0, count - 1)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.Center) {
             MorphPagerButton("‹", safePage > 0, "Previous categories") { onPageChange(safePage - 1) }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 slicePage(categories, safePage, pageSize).forEach { category ->
                     MorphCategoryButton(category, if (category.kind == null) tab == 0 else tab == 1 && activeKind == category.kind) { onSelect(category) }
                 }
