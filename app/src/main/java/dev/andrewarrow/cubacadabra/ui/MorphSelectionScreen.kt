@@ -262,8 +262,9 @@ private fun MorphPreviewStage(gameModel: GameViewModel, previewReady: Boolean, m
     ) {
         Box(Modifier.fillMaxSize().padding(2.dp).clip(shape)) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = .08f)))
-            RustGameSurface(gameModel, avatarPreviewMode = true, modifier = Modifier.fillMaxSize().clip(shape))
-            if (!previewReady) {
+            if (previewReady) {
+                RustGameSurface(gameModel, avatarPreviewMode = true, modifier = Modifier.fillMaxSize().clip(shape))
+            } else {
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color.White)
                     Text("Building your morph…", modifier = Modifier.padding(top = 12.dp), color = Color.White.copy(.76f), fontWeight = FontWeight.SemiBold)
