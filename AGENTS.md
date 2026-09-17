@@ -10,13 +10,7 @@ background in dark mode.
 
 you can work in ../backend too if needed
 
-any changes to backend have to be backwards compatible with older clients
-
-do not write any tests 
-
 After making code changes do not run gradlew or adb let me test changes in android studio.
-
-when you are done editing the code just reply "-----------------------------> DONE!" no need to generate a summary of what was done.
 
 ## Android architecture guardrails
 
