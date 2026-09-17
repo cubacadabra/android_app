@@ -65,6 +65,9 @@ extern uint8_t engine_renderer_set_package_image_atlas(
 extern uint8_t engine_renderer_register_morph_pack(
     CubacadabraRenderer *, const uint8_t *, uintptr_t
 );
+extern uint8_t engine_renderer_register_world_mesh(
+    CubacadabraRenderer *, const char *, const uint8_t *, uintptr_t
+);
 extern uint8_t engine_renderer_set_avatar_preview_mode(CubacadabraRenderer *, uint8_t);
 extern void engine_renderer_sync(CubacadabraRenderer *, const CubacadabraEngine *);
 extern void engine_renderer_draw(CubacadabraRenderer *);
@@ -346,6 +349,30 @@ static jboolean JNICALL nativeRegisterMorphPack(JNIEnv *env, jclass klass, jlong
     return accepted ? JNI_TRUE : JNI_FALSE;
 }
 
+static jboolean JNICALL nativeRegisterWorldMesh(JNIEnv *env, jclass klass, jlong value,
+                                                jstring id, jbyteArray model) {
+    (void)klass;
+    AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
+    if (!holder || !id || !model) return JNI_FALSE;
+    const char *idSource = (*env)->GetStringUTFChars(env, id, NULL);
+    jsize length = (*env)->GetArrayLength(env, model);
+    jbyte *source = (*env)->GetByteArrayElements(env, model, NULL);
+    if (!idSource || (!source && length > 0)) {
+        if (idSource) (*env)->ReleaseStringUTFChars(env, id, idSource);
+        if (source) (*env)->ReleaseByteArrayElements(env, model, source, JNI_ABORT);
+        return JNI_FALSE;
+    }
+    uint8_t accepted = engine_renderer_register_world_mesh(
+        holder->renderer,
+        idSource,
+        (const uint8_t *)source,
+        (uintptr_t)length
+    );
+    (*env)->ReleaseStringUTFChars(env, id, idSource);
+    if (source) (*env)->ReleaseByteArrayElements(env, model, source, JNI_ABORT);
+    return accepted ? JNI_TRUE : JNI_FALSE;
+}
+
 static void JNICALL nativeSetAvatarPreviewMode(JNIEnv *env, jclass klass, jlong value, jboolean enabled) {
     (void)env; (void)klass;
     AndroidRenderer *holder = (AndroidRenderer *)(intptr_t)value;
@@ -466,6 +493,7 @@ static JNINativeMethod methods[] = {
     {"nativeResizeRenderer", "(JFF)V", (void *)nativeResizeRenderer},
     {"nativeSetPackageImageAtlas", "(JII[B[B)Z", (void *)nativeSetPackageImageAtlas},
     {"nativeRegisterMorphPack", "(J[B)Z", (void *)nativeRegisterMorphPack},
+    {"nativeRegisterWorldMesh", "(JLjava/lang/String;[B)Z", (void *)nativeRegisterWorldMesh},
     {"nativeSetAvatarPreviewMode", "(JZ)V", (void *)nativeSetAvatarPreviewMode},
     {"nativeDrawRenderer", "(JJ)V", (void *)nativeDrawRenderer},
     {"nativeDestroyRenderer", "(J)V", (void *)nativeDestroyRenderer},

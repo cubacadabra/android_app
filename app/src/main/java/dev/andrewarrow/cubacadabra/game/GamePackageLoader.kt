@@ -21,6 +21,7 @@ class GamePackageLoader(context: Context) {
         const val CACHE_VERSION = "v5"
         const val MAXIMUM_IMAGE_ASSETS = 16
         const val MAXIMUM_MORPH_PACKS = 32
+        const val MAXIMUM_WORLD_MODELS = 64
         val GAME_ID_PATTERN = Regex("^[a-z0-9]+(?:-[a-z0-9]+)*$")
         val AUDIO_ID_PATTERN = Regex("^[A-Za-z0-9._-]{1,64}$")
         val AUDIO_PATH_PATTERN = Regex(
@@ -35,6 +36,10 @@ class GamePackageLoader(context: Context) {
         val MORPH_ID_PATTERN = Regex("^[a-z0-9-]+:[a-z0-9_-]+(?:/[a-z0-9_-]+)*\\.v[1-9][0-9]*$")
         val MORPH_PATH_PATTERN = Regex(
             "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.morphpack$",
+            RegexOption.IGNORE_CASE,
+        )
+        val MODEL_PATH_PATTERN = Regex(
+            "^assets/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.glb$",
             RegexOption.IGNORE_CASE,
         )
     }
@@ -229,6 +234,7 @@ class GamePackageLoader(context: Context) {
             audioAssets,
             emptyMap(),
             emptyList(),
+            emptyList(),
             GamePackageVersion.parse(manifestObject.optString("version", null)),
         )
     }
@@ -297,9 +303,43 @@ class GamePackageLoader(context: Context) {
         val result = loaded.copy(
             imageAssets = images,
             morphPacks = loadMorphPacks(loaded, imageBaseUrl, bundledDirectory, additionalMorphPackUrls),
+            models = loadWorldModels(loaded, imageBaseUrl, bundledDirectory),
         )
         verifyPackageContents(result, imageBaseUrl, bundledDirectory)
         return result
+    }
+
+    private fun loadWorldModels(
+        loaded: LoadedGamePackage,
+        baseUrl: String?,
+        bundledDirectory: String?,
+    ): List<LoadedGameModel> {
+        val definitions = loaded.packageData.assets?.models.orEmpty()
+        if (definitions.size > MAXIMUM_WORLD_MODELS) {
+            throw GamePackageException("This game declares too many world models.")
+        }
+        return definitions.toSortedMap().map { (id, definition) ->
+            if (!IMAGE_ID_PATTERN.matches(id) || !MODEL_PATH_PATTERN.matches(definition.path)) {
+                throw GamePackageException("The game world model \"$id\" is invalid.")
+            }
+            val data = when {
+                bundledDirectory != null -> applicationContext.assets.open(
+                    "$bundledDirectory/${definition.path}"
+                ).use { it.readBytes() }
+                baseUrl != null -> {
+                    val url = runCatching { URL(baseUrl + definition.path) }.getOrNull()
+                    if (url == null || url.protocol !in setOf("http", "https") || url.host.isNullOrEmpty()) {
+                        throw GamePackageException("The game world model \"$id\" is invalid.")
+                    }
+                    fetch(url, 16 * 1024 * 1024)
+                }
+                else -> throw GamePackageException("The game world model \"$id\" is invalid.")
+            }
+            if (data.isEmpty() || data.size > 16 * 1024 * 1024) {
+                throw GamePackageException("The game world model \"$id\" is invalid.")
+            }
+            LoadedGameModel(id, data)
+        }
     }
 
     private fun verifyPackageContents(

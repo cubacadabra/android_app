@@ -96,6 +96,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var morphPreviewRenderer: Long = 0
     private var packageImageAtlas: GameImageAtlas? = null
     private var packageMorphPacks: List<ByteArray> = emptyList()
+    private var packageWorldModels: List<LoadedGameModel> = emptyList()
     private val morphPreviewPacks = linkedMapOf<String, ByteArray>()
     private val morphPreviewRegisteredPackURLs = mutableSetOf<String>()
     private var morphPreviewGeneration = 0L
@@ -285,6 +286,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun createEngine(loaded: LoadedGamePackage): Long {
         packageImageAtlas = GameImageAtlasBuilder.make(loaded.imageAssets)
         packageMorphPacks = loaded.morphPacks.map { it.data }
+        packageWorldModels = loaded.models
         val created = NativeEngine.nativeCreate(
             loaded.manifest.toByteArray(StandardCharsets.UTF_8),
             loaded.script.toByteArray(StandardCharsets.UTF_8),
@@ -686,6 +688,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (!avatarPreviewMode) packageMorphPacks.forEach { pack ->
                 if (!NativeEngine.nativeRegisterMorphPack(createdRenderer, pack)) {
                     Log.e(TAG, "morph pack upload failed")
+                }
+            }
+            if (!avatarPreviewMode) packageWorldModels.forEach { model ->
+                if (!NativeEngine.nativeRegisterWorldMesh(createdRenderer, model.id, model.data)) {
+                    Log.e(TAG, "world model upload failed id=${model.id}")
                 }
             }
         }

@@ -62,7 +62,18 @@ private fun parseAssets(json: JSONObject?): GameAssets? {
             }
         }
     }
-    return GameAssets(audio = audio, images = images, morphPacks = morphPacks)
+    val models = if (!json.has("models")) {
+        null
+    } else {
+        if (json.isNull("models")) throw GamePackageException("The game manifest assets.models must be an object.")
+        val modelValue = json.getJSONObject("models")
+        buildMap<String, GameModelAssetDefinition> {
+            modelValue.keys().forEach { id ->
+                put(id, GameModelAssetDefinition(modelValue.getJSONObject(id).getString("path")))
+            }
+        }
+    }
+    return GameAssets(audio = audio, images = images, morphPacks = morphPacks, models = models)
 }
 
 private fun parseWorld(json: JSONObject): WorldDefinition = WorldDefinition(

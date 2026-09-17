@@ -34,11 +34,13 @@ data class GameAssets(
     val audio: Map<String, GameAudioAssetDefinition>?,
     val images: Map<String, GameImageAssetDefinition>? = null,
     val morphPacks: Map<String, GameMorphPackDefinition>? = null,
+    val models: Map<String, GameModelAssetDefinition>? = null,
 )
 
 data class GameAudioAssetDefinition(val path: String, val volume: Float)
 data class GameImageAssetDefinition(val path: String)
 data class GameMorphPackDefinition(val path: String)
+data class GameModelAssetDefinition(val path: String)
 
 data class GameCatalogEntry(
     val id: String,
@@ -97,6 +99,7 @@ data class LoadedGamePackage(
     val audioAssets: Map<String, LoadedGameAudioAsset>,
     val imageAssets: Map<String, LoadedGameImageAsset>,
     val morphPacks: List<LoadedGameMorphPack>,
+    val models: List<LoadedGameModel>,
     val version: GamePackageVersion?,
 )
 
@@ -143,6 +146,7 @@ data class LoadedGameAudioAsset(
 
 data class LoadedGameImageAsset(val data: ByteArray)
 data class LoadedGameMorphPack(val data: ByteArray)
+data class LoadedGameModel(val id: String, val data: ByteArray)
 
 data class GameImageAtlas(
     val width: Int,
