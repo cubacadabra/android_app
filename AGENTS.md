@@ -29,9 +29,3 @@ Use Kotlin + Jetpack Compose with a deliberately simple architecture.
 - Do not add abstraction layers merely to forward calls.
 - Prefer extending the existing app-level state holder for cross-screen features instead of creating parallel state systems.
 - Do not restructure working code into a different architecture unless the task specifically requires it.
-
-## Canonical cross-repository documentation
-
-If you change a public or cross-repository contract, update `cubacadabra/docs`
-in the same piece of work. Do not create a competing repo-local `docs/`
-specification.
